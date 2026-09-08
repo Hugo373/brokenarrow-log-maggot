@@ -62,6 +62,7 @@ def main() -> int:
     proc = subprocess.Popen(
         [sys.executable, str(ROOT / "web_ui.py"), "--dir", str(logs), "--port", str(port),
          "--no-stats", "--no-browser", "--daily-limit", "10",
+         "--rel-db", str(workdir / "rel.sqlite"),
          "--cache", str(workdir / "cache.json")],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=ROOT)
     try:
@@ -89,9 +90,24 @@ def main() -> int:
         check("blacklist gone after remove", not any(x.get("id") == "999001" for x in json.loads(body).get("blacklist", [])))
 
         with (logs / "Gamelog__2099_01_01__00_00.log").open("a", encoding="utf-8") as handle:
-            handle.write("[2099-01-01 00:00:01]\nLog: GetPersonaName SmokeTester\nLog: Enter to lobby (id: 7)\n")
+            handle.write(
+                "[2099-01-01 00:00:01]\nLog: GetPersonaName SmokeTester\nLog: Enter to lobby (id: 7)\n"
+                "[2099-01-01 00:05:01]\nLog: Start loading battle... map: SmokeMap, scenario: - Smoke_network\n"
+                "[2099-01-01 00:05:11]\nLog: FID:990001\nLog: Player list:\n"
+                "ID: 12345, Name: SmokeTester, Team: Alpha\nID: 67890, Name: FriendDude, Team: Alpha\nID: 54321, Name: EnemyDude, Team: Bravo\n"
+                "[2099-01-01 00:40:01]\nLog: GameController dispose called\n")
         check("log pipeline reaches parser", wait_for(
             lambda: "local_name" in (json.loads(http(port, "/api/state")[1]).get("parser_health", {}).get("markers") or {}), 10))
+        check("match end recorded", wait_for(
+            lambda: "match_end" in (json.loads(http(port, "/api/state")[1]).get("parser_health", {}).get("markers") or {}), 10))
+
+        status, body = http(port, "/api/investigate?id=67890")
+        detail = json.loads(body) if status == 200 else {}
+        check("investigate teammate", status == 200 and (detail.get("teammate") or {}).get("matches") == 1 and detail.get("names"), str(status))
+        status, body = http(port, "/api/investigate?id=54321")
+        detail = json.loads(body) if status == 200 else {}
+        check("investigate opponent side", status == 200 and (detail.get("opponent") or {}).get("matches") == 1, str(status))
+        check("investigate requires id", http(port, "/api/investigate")[0] == 400)
     finally:
         proc.kill()
         proc.wait(timeout=10)
@@ -104,6 +120,21 @@ def main() -> int:
     summary = quota.summary()
     check("quota summary", summary["used"] == 2 and summary["remaining"] == 0, json.dumps(summary))
     check("quota persists across reload", Quota(workdir / "quota.json", limit=2).summary()["used"] == 2)
+
+    from relationships import RelationshipDB
+    rel = RelationshipDB(workdir / "rel-unit.sqlite")
+    rel.add_match({"fid": "f1", "start_time": "2099-01-01 10:00:00", "map": "A", "players": [
+        {"id": "1", "name": "me", "team": "Alpha"}, {"id": "2", "name": "pal", "team": "Alpha"}, {"id": "3", "name": "foe", "team": "Bravo"}]})
+    rel.add_match({"fid": "f2", "start_time": "2099-01-02 10:00:00", "map": "B", "players": [
+        {"id": "1", "name": "me", "team": "Alpha"}, {"id": "2", "name": "buddy", "team": "Alpha"}, {"id": "4", "name": "foe2", "team": "Bravo"}]})
+    rel.record_result("f1", True); rel.record_result("f2", False)
+    ann = rel.annotate_against_local([{"id": "2", "team": "Alpha"}], "1")
+    check("teammate co-play stats", ann["2"]["prior_teammate_matches"] == 2 and ann["2"]["teammate_wins"] == 1 and ann["2"]["teammate_losses"] == 1, str(ann.get("2")))
+    check("name history on rename", [n["name"] for n in rel.name_history("2")] == ["buddy", "pal"])
+    inv = rel.investigate("2", "1")
+    check("investigate aggregates", inv["teammate"]["matches"] == 2 and len(inv["recent"]) == 2 and inv["recent"][0]["won"] is False)
+    check("ban baseline silent", rel.apply_ban_snapshot([{"id": 99, "name": "x"}]) == [])
+    check("ban alerts only met newcomers", rel.apply_ban_snapshot([{"id": 99, "name": "x"}, {"id": "3", "name": "foe"}, {"id": "5", "name": "never-met"}]) == [{"id": "3", "name": "foe"}], "foe3")
 
     failed = [name for name, ok, _ in CHECKS if not ok]
     for name, ok, detail in CHECKS:

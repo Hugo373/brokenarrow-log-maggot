@@ -5,7 +5,7 @@ import argparse, json, threading, time, webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 from ba_tool import LogParser, LogWatcher, MatchAnalysis, PublicStatsClient, CaptchaRequired, match_from_dict, human_report, scan, find_gamelogs, DEFAULT_GAMELOGS
 from analysis_engine import analyze_single_match
@@ -110,10 +110,12 @@ class ResilientClient(PublicStatsClient):
   except Exception:self.cache.fail();return stale
 
 class State:
- def __init__(self,directory,client,cache):
-  self.lock=threading.Lock();self.file='';self.phase='starting / 启动中';self.last_event='';self.updated=time.time();self.match=None;self.report='';self.review=None;self.health={};self.cache=cache;self.client=client;self.local_name=None;self.relationships=RelationshipDB(Path(__file__).with_name('ba-relationships.sqlite'));self.analysis=MatchAnalysis(client,self.updated_stats)
+ def __init__(self,directory,client,cache,rel_db=None):
+  self.lock=threading.Lock();self.file='';self.phase='starting / 启动中';self.last_event='';self.updated=time.time();self.match=None;self.report='';self.review=None;self.health={};self.cache=cache;self.client=client;self.local_name=None;self.local_id=None;self.ban_alerts=[];self.relationships=RelationshipDB(rel_db or Path(__file__).with_name('ba-relationships.sqlite'));self.analysis=MatchAnalysis(client,self.updated_stats)
  def annotate(self,match,party_override=None):
-  data=match.jsonable(); players=data.get('players',[]); local_id=next((str(p.get('id')) for p in players if p.get('name')==self.local_name),None); rel=self.relationships.annotate_against_local(players,local_id); party=party_override or self.relationships.party_signal(players)
+  data=match.jsonable(); players=data.get('players',[]); local_id=next((str(p.get('id')) for p in players if p.get('name')==self.local_name),None)
+  if local_id:self.local_id=local_id
+  rel=self.relationships.annotate_against_local(players,local_id); party=party_override or self.relationships.party_signal(players)
   for p in players:
    pid=str(p.get('id'));p['relationship']=rel.get(pid,{});p['relationship']['is_self']=(local_id is not None and pid==local_id);p['party_signal']=party
   data['local_id']=local_id;data['local_name']=self.local_name;data['party_signal']=party;return data
@@ -143,6 +145,10 @@ class State:
   if k=='roster' and d.get('match'):self.analysis.on_roster(match_from_dict(d['match']))
   if k=='match_end' and d.get('match'):
    m=match_from_dict(d['match']);self.analysis.finish(m);self.relationships.add_match(m.jsonable())
+   if self.client and m.fid:
+    lid=next((p.id for p in m.players if p.name==self.local_name),None)
+    dlt=((m.player_stats or {}).get(lid) or {}).get('elo_delta')
+    if isinstance(dlt,(int,float)) and abs(dlt)>=0.01:self.relationships.record_result(str(m.fid),dlt>0)
    with self.lock:self.match=self.annotate(m,self.api_party(m));self.report=human_report(m);self.phase='match finished / 对局结束';self.updated=time.time()
    if self.client and m.fid:threading.Thread(target=self.fetch_review,args=(m.fid,),daemon=True).start()
  def fetch_review(self,fid):
@@ -157,8 +163,20 @@ class State:
      r={'status':'unavailable','match_id':str(fid),'reason':type(e).__name__}
      with self.lock:self.review=r;self.updated=time.time()
     else: time.sleep(2 ** attempt)
+ def check_bans(self):
+  raw=self.client._get('/api/leaderboard/ban',{'limit':1000})
+  alerts=self.relationships.apply_ban_snapshot((raw or {}).get('leaderboard') or [])
+  if alerts:
+   with self.lock:self.ban_alerts=alerts;self.updated=time.time()
+ def ban_loop(self):
+  if not self.client:return
+  time.sleep(10)
+  while True:
+   try:self.check_bans()
+   except (HTTPError,URLError,TimeoutError,OSError,ValueError,RuntimeError,TypeError,KeyError):pass
+   time.sleep(3600)
  def json(self):
-  with self.lock:return {'connected':bool(self.file),'file':self.file,'phase':self.phase,'last_event':self.last_event,'updated':self.updated,'match':self.match,'report':self.report,'battle_review':self.review,'stats_enabled':bool(self.client),'api_status':self.client.status() if self.client else {'offline':True},'cache':self.cache.summary(),'parser_health':self.health,'blacklist':self.relationships.list_blacklist()}
+  with self.lock:return {'connected':bool(self.file),'file':self.file,'phase':self.phase,'last_event':self.last_event,'updated':self.updated,'match':self.match,'report':self.report,'battle_review':self.review,'stats_enabled':bool(self.client),'api_status':self.client.status() if self.client else {'offline':True},'cache':self.cache.summary(),'parser_health':self.health,'blacklist':self.relationships.list_blacklist(),'ban_alerts':self.ban_alerts}
 
 class Server(ThreadingHTTPServer):
  # Windows SO_REUSEADDR allows a second process to bind a taken port without error;
@@ -168,7 +186,14 @@ class Server(ThreadingHTTPServer):
 class Handler(BaseHTTPRequestHandler):
  def do_GET(self):
   try:
-   p=urlparse(self.path).path;body=HTML.encode() if p=='/' else json.dumps(self.server.state.json(),ensure_ascii=False).encode() if p=='/api/state' else None
+   u=urlparse(self.path);p=u.path
+   if p=='/':body=HTML.encode()
+   elif p=='/api/state':body=json.dumps(self.server.state.json(),ensure_ascii=False).encode()
+   elif p=='/api/investigate':
+    pid=(parse_qs(u.query).get('id') or [None])[0]
+    if pid is None:self.send_error(400,'missing id');return
+    st=self.server.state;body=json.dumps(st.relationships.investigate(pid,st.local_id),ensure_ascii=False).encode()
+   else:body=None
    if body is None:self.send_error(404);return
    self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8' if p=='/' else 'application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
   except (BrokenPipeError,ConnectionAbortedError,ConnectionResetError):pass
@@ -185,11 +210,11 @@ class Handler(BaseHTTPRequestHandler):
  def log_message(self,*args):pass
 
 def main():
- ap=argparse.ArgumentParser();ap.add_argument('--dir',type=Path,default=None);ap.add_argument('--port',type=int,default=8765);ap.add_argument('--no-stats',action='store_true');ap.add_argument('--no-browser',action='store_true');ap.add_argument('--daily-limit',type=int,default=300);ap.add_argument('--cache',type=Path,default=Path('ba-api-cache.json'));a=ap.parse_args()
+ ap=argparse.ArgumentParser();ap.add_argument('--dir',type=Path,default=None);ap.add_argument('--port',type=int,default=8765);ap.add_argument('--no-stats',action='store_true');ap.add_argument('--no-browser',action='store_true');ap.add_argument('--daily-limit',type=int,default=300);ap.add_argument('--rel-db',type=Path,default=None);ap.add_argument('--cache',type=Path,default=Path('ba-api-cache.json'));a=ap.parse_args()
  if a.dir is None:a.dir=find_gamelogs() or DEFAULT_GAMELOGS
- cache=Cache(a.cache);quota=Quota(a.cache.with_name('ba-api-quota.json'),a.daily_limit);client=None if a.no_stats else ResilientClient('https://app.batrace.top',cache,quota);state=State(a.dir,client,cache)
+ cache=Cache(a.cache);quota=Quota(a.cache.with_name('ba-api-quota.json'),a.daily_limit);client=None if a.no_stats else ResilientClient('https://app.batrace.top',cache,quota);state=State(a.dir,client,cache,a.rel_db)
  if not a.dir.is_dir():state.phase=f'未找到日志目录 / GameLogs not found: {a.dir} —— 请确认游戏已安装并进入过一次对局，或用 --dir 指定路径'
- parser=LogParser(state.event);watcher=LogWatcher(a.dir,parser);threading.Thread(target=lambda:(setattr(state,'file','starting'),watcher.run()),daemon=True).start()
+ parser=LogParser(state.event);watcher=LogWatcher(a.dir,parser);threading.Thread(target=lambda:(setattr(state,'file','starting'),watcher.run()),daemon=True).start();threading.Thread(target=state.ban_loop,daemon=True).start()
  server=None
  for port in range(a.port,a.port+20):
   try:server=Server(('127.0.0.1',port),Handler);break

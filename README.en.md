@@ -17,9 +17,9 @@ No Python or other dependencies to install; a runtime is bundled. On first launc
 - **Live log monitoring**: byte-offset incremental reads of the newest Gamelog; lobby/match/roster/FID state machine with parser telemetry
 - **Web dashboard**: status / pre-match / post-match review / diagnostics; double-click launch, automatic port fallback, relaunch reuses the running instance, visible error dialog on failure
 - **Player index**: continuous team-relative scoring with recency decay, party down-weighting, Bayesian shrinkage and a 90% confidence interval; shows N/A instead of guessing when data is insufficient
-- **Relationship notes**: a local SQLite history of everyone you met; one-click friend marks, acquaintance list management and party detection
+- **Relationship notes**: local SQLite history of everyone you met; click a name to investigate (encounters, W/L as ally and enemy, former names, recent games); one-click friend marks; party detection; banner alerts when someone you met gets banned
 - **API governance**: per-endpoint cache TTLs, fresh/stale distinction, tiered circuit breaker, throttled retries, persisted rolling 24h quota, human-verification page detection, stale-cache fallback
-- **Engineering**: zero third-party dependencies (Python 3 stdlib only); 15 end-to-end smoke assertions; GitHub Actions gate plus tag-driven releases
+- **Engineering**: zero third-party dependencies (Python 3 stdlib only); end-to-end smoke test covering the HTTP surface, list edits, log pipeline, quota and the relationship store; GitHub Actions gate plus tag-driven releases
 
 ## Command line (from source)
 
@@ -87,7 +87,7 @@ The parser silently ignores unrecognized log lines and replaces malformed bytes,
 ## Development
 
 ```text
-python smoke_test.py    # 15 end-to-end assertions: HTTP surface / list edits / log pipeline / quota
+python smoke_test.py    # end-to-end smoke: HTTP surface / list edits / log pipeline / quota / relationship store
 ```
 
 Branches: `main` is stable, `dev` for development. CI runs the smoke test on every push/PR; pushing a `v*` tag builds the portable zip and cuts a GitHub Release.
