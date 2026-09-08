@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-本地只读的《Broken Arrow》GameLogs 分析器：实时识别当前对局与玩家名单，结合公开统计接口计算玩家综合表现指数（1~10，越低越强），在浏览器仪表盘展示局前速览、局后复盘与诊断信息。
+本地工具，只读《Broken Arrow》的 GameLogs：实时识别当前对局与名单，查询公开统计并计算玩家表现指数（1~10，越低越强）；同时用本地数据库追踪你遇到过的玩家——相遇战绩、改名历史、封禁提醒。一切呈现在浏览器仪表盘：局前速览、局后复盘与诊断。
 
 ## 快速上手
 
@@ -18,7 +18,7 @@
 - **Web 仪表盘**：工作情况 / 局前速览 / 局后复盘 / 诊断；双击启动、端口自动回退、重复启动复用实例、失败弹窗
 - **玩家指数**：队内连续相对评分，含时间衰减、组排降权、贝叶斯收缩与 90% 置信区间；数据不足时显示 N/A 而非猜测
 - **关系标注**：本地 SQLite 记录同局历史；点玩家名展开调查（相遇次数、同队/敌对战绩、曾用名、最近同局）；一键标记开黑好友；固定队提示；遇到过的玩家被封禁时横幅提醒
-- **API 治理**：分接口缓存 TTL、fresh/stale 区分、分级熔断、限流退避、24h 滚动配额、人机验证识别、过期缓存回退
+- **API 治理**：分接口缓存 TTL、fresh/stale 区分、分级熔断、限流退避、24h 滚动配额、人机验证识别、过期缓存回退、失败后按熔断窗口自动重试
 - **工程**：零三方依赖（仅 Python 3 标准库）；端到端冒烟测试覆盖 HTTP 面/名单/日志管线/配额/关系库；GitHub Actions 门禁与一键发版
 
 ## 命令行（源码运行）
@@ -39,6 +39,7 @@ python ba_tool.py watch              # 实时监控最新日志（JSON 事件）
 | `--no-stats` | 离线模式，零网络请求 |
 | `--no-browser` | 不自动打开浏览器 |
 | `--daily-limit N` | 24 小时滚动 API 配额（默认 300）；命中缓存不计费 |
+| `--rel-db <文件>` | 关系数据库路径（默认程序目录下 `ba-relationships.sqlite`） |
 | `--cache <文件>` | API 缓存路径（默认 `ba-api-cache.json`） |
 
 ## 玩家指数
@@ -69,7 +70,7 @@ GET /api/analysis/match?matchid=<对局ID>  # 单局 mvpRanking/economy/damage �
 
 ```text
 GameLogs ──→ LogWatcher（增量读/半行缓冲）──→ LogParser（状态机+遥测）
-        ──→ Match 模型 ──→ CLI / State（聚合、关系标注）
+        ──→ Match 模型 ──→ CLI / State（聚合、关系标注、封禁巡检）
 ResilientClient ──→ 公开 API（缓存 / 熔断 / 配额 / 退避）
 State ──→ ThreadingHTTPServer 127.0.0.1 ──→ web_ui.html（轮询渲染）
 ```

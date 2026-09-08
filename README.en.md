@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-A read-only local analyzer for Broken Arrow GameLogs: it detects the live match roster, queries public statistics to compute a per-player performance index (1–10, lower is stronger), and serves pre-match / post-match dashboards in the browser.
+A read-only local tool for Broken Arrow GameLogs: it detects the live match roster, queries public statistics to compute a per-player performance index (1–10, lower is stronger), and keeps a local database of the players you meet — encounter records, name history, ban alerts. Everything shows up in a browser dashboard: pre-match board, post-match review, diagnostics.
 
 ## Quick Start
 
@@ -18,7 +18,7 @@ No Python or other dependencies to install; a runtime is bundled. On first launc
 - **Web dashboard**: status / pre-match / post-match review / diagnostics; double-click launch, automatic port fallback, relaunch reuses the running instance, visible error dialog on failure
 - **Player index**: continuous team-relative scoring with recency decay, party down-weighting, Bayesian shrinkage and a 90% confidence interval; shows N/A instead of guessing when data is insufficient
 - **Relationship notes**: local SQLite history of everyone you met; click a name to investigate (encounters, W/L as ally and enemy, former names, recent games); one-click friend marks; party detection; banner alerts when someone you met gets banned
-- **API governance**: per-endpoint cache TTLs, fresh/stale distinction, tiered circuit breaker, throttled retries, persisted rolling 24h quota, human-verification page detection, stale-cache fallback
+- **API governance**: per-endpoint cache TTLs, fresh/stale distinction, tiered circuit breaker, throttled retries, persisted rolling 24h quota, human-verification page detection, stale-cache fallback, automatic retry aligned to breaker windows
 - **Engineering**: zero third-party dependencies (Python 3 stdlib only); end-to-end smoke test covering the HTTP surface, list edits, log pipeline, quota and the relationship store; GitHub Actions gate plus tag-driven releases
 
 ## Command line (from source)
@@ -39,6 +39,7 @@ python ba_tool.py watch              # live-monitor the newest log (JSON events)
 | `--no-stats` | offline mode, zero network requests |
 | `--no-browser` | do not auto-open the dashboard |
 | `--daily-limit N` | rolling 24h API budget (default 300); cache hits are free |
+| `--rel-db <file>` | relationship database path (default `ba-relationships.sqlite` next to the program) |
 | `--cache <file>` | API cache path (default `ba-api-cache.json`) |
 
 ## Player index
@@ -69,7 +70,7 @@ index       = 10 − 9 × shrunk mean, with a 90% CI of 1.645 × SE × 9
 
 ```text
 GameLogs ──→ LogWatcher (incremental reads / partial-line buffer) ──→ LogParser (state machine + telemetry)
-        ──→ Match model ──→ CLI / State (aggregation, relationship tags)
+        ──→ Match model ──→ CLI / State (aggregation, relationship tags, ban watch)
 ResilientClient ──→ public API (cache / breaker / quota / backoff)
 State ──→ ThreadingHTTPServer 127.0.0.1 ──→ web_ui.html (polling renderer)
 ```
