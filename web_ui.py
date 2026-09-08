@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
-from ba_tool import LogParser, LogWatcher, MatchAnalysis, PublicStatsClient, CaptchaRequired, match_from_dict, human_report, scan
+from ba_tool import LogParser, LogWatcher, MatchAnalysis, PublicStatsClient, CaptchaRequired, match_from_dict, human_report, scan, find_gamelogs, DEFAULT_GAMELOGS
 from analysis_engine import analyze_single_match
 from relationships import RelationshipDB
 
@@ -16,7 +16,7 @@ HTML=Path(__file__).with_name("web_ui.html").read_text(encoding="utf-8")
 class Cache:
  PREFIX_TTL={'match':604800,'player':21600,'index':21600}
  def __init__(self,path,ttl=21600):
-  self.path=Path(path);self.ttl=ttl;self.lock=threading.Lock();self.d={'entries':{},'hits':0,'misses':0,'failures':0}
+  self.path=Path(path);self.ttl=ttl;self.lock=threading.Lock();self.d={'entries':{},'hits':0,'misses':0,'failures':0};self.last_write=0
   try:self.d.update(json.loads(self.path.read_text(encoding='utf8')))
   except (OSError,ValueError):pass
  def get(self,k):
@@ -28,7 +28,9 @@ class Cache:
    self.d['hits' if fresh else 'misses']+=1;return x.get('value'),fresh
  def put(self,k,v):
   with self.lock:
-   self.d['entries'][k]={'time':time.time(),'value':v}
+   self.d['entries'][k]={'time':time.time(),'value':v};now=time.time()
+   if now-self.last_write<3:return
+   self.last_write=now
    try:self.path.parent.mkdir(parents=True,exist_ok=True);self.path.write_text(json.dumps(self.d,ensure_ascii=False),encoding='utf8')
    except OSError:pass
  def fail(self):
@@ -183,7 +185,11 @@ class Handler(BaseHTTPRequestHandler):
  def log_message(self,*args):pass
 
 def main():
- ap=argparse.ArgumentParser();ap.add_argument('--dir',type=Path,default=Path(r'D:\SteamLibrary\steamapps\common\broken_arrow\GameLogs'));ap.add_argument('--port',type=int,default=8765);ap.add_argument('--no-stats',action='store_true');ap.add_argument('--no-browser',action='store_true');ap.add_argument('--daily-limit',type=int,default=300);ap.add_argument('--cache',type=Path,default=Path('ba-api-cache.json'));a=ap.parse_args();cache=Cache(a.cache);quota=Quota(a.cache.with_name('ba-api-quota.json'),a.daily_limit);client=None if a.no_stats else ResilientClient('https://app.batrace.top',cache,quota);state=State(a.dir,client,cache);parser=LogParser(state.event);watcher=LogWatcher(a.dir,parser);threading.Thread(target=lambda:(setattr(state,'file','starting'),watcher.run()),daemon=True).start()
+ ap=argparse.ArgumentParser();ap.add_argument('--dir',type=Path,default=None);ap.add_argument('--port',type=int,default=8765);ap.add_argument('--no-stats',action='store_true');ap.add_argument('--no-browser',action='store_true');ap.add_argument('--daily-limit',type=int,default=300);ap.add_argument('--cache',type=Path,default=Path('ba-api-cache.json'));a=ap.parse_args()
+ if a.dir is None:a.dir=find_gamelogs() or DEFAULT_GAMELOGS
+ cache=Cache(a.cache);quota=Quota(a.cache.with_name('ba-api-quota.json'),a.daily_limit);client=None if a.no_stats else ResilientClient('https://app.batrace.top',cache,quota);state=State(a.dir,client,cache)
+ if not a.dir.is_dir():state.phase=f'未找到日志目录 / GameLogs not found: {a.dir} —— 请确认游戏已安装并进入过一次对局，或用 --dir 指定路径'
+ parser=LogParser(state.event);watcher=LogWatcher(a.dir,parser);threading.Thread(target=lambda:(setattr(state,'file','starting'),watcher.run()),daemon=True).start()
  server=None
  for port in range(a.port,a.port+20):
   try:server=Server(('127.0.0.1',port),Handler);break

@@ -392,6 +392,29 @@ class LogParser:
             "matches": len(self.matches),
         }
 
+DEFAULT_GAMELOGS = Path(r"D:\SteamLibrary\steamapps\common\broken_arrow\GameLogs")
+
+def find_gamelogs() -> Optional[Path]:
+    """Discover Broken Arrow's GameLogs through Steam library folders; None when not found."""
+    suffix = Path("steamapps") / "common" / "broken_arrow" / "GameLogs"
+    steam = Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")) / "Steam"
+    roots = [steam, DEFAULT_GAMELOGS.parents[2]]
+    vdf = steam / "steamapps" / "libraryfolders.vdf"
+    try:
+        roots += [Path(p.replace("\\\\", "\\")) for p in re.findall(r'"path"\s+"([^"]+)"', vdf.read_text(encoding="utf-8", errors="replace"))]
+    except OSError:
+        pass
+    seen: set[str] = set()
+    for root in roots:
+        key = str(root).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        candidate = root / suffix
+        if candidate.is_dir():
+            return candidate
+    return None
+
 class LogWatcher:
     def __init__(self, directory: Path, parser: LogParser, poll_seconds: float = 1.5):
         self.directory = directory
@@ -474,7 +497,7 @@ def match_from_dict(data: dict) -> Match:
 
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Read-only Broken Arrow GameLogs analyzer")
-    ap.add_argument("--dir", type=Path, default=Path(r"D:\SteamLibrary\steamapps\common\broken_arrow\GameLogs"), help="GameLogs directory")
+    ap.add_argument("--dir", type=Path, default=None, help="GameLogs directory (auto-detected via Steam when omitted)")
     sub = ap.add_subparsers(dest="command", required=True)
     scan_cmd = sub.add_parser("scan", help="scan historical logs")
     scan_cmd.add_argument("--json", dest="json_path", type=Path, help="write report JSON")
@@ -483,8 +506,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     watch_cmd.add_argument("--stats-api", default="https://app.batrace.top", help="public stats API base URL")
     watch_cmd.add_argument("--no-stats", action="store_true", help="disable public player lookups")
     args = ap.parse_args(argv)
+    if args.dir is None:
+        args.dir = find_gamelogs() or DEFAULT_GAMELOGS
     if not args.dir.is_dir():
-        print(f"Log directory not found: {args.dir}", file=sys.stderr)
+        print(f"Log directory not found: {args.dir} (auto-detect failed; pass --dir) / 未找到日志目录", file=sys.stderr)
         return 2
     if args.command == "scan":
         parser = scan(args.dir)

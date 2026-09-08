@@ -15,7 +15,9 @@ Read-only local analyzer for Broken Arrow GameLogs: detects the live match roste
 
 ## 快速开始 / Quick Start
 
-双击 `启动BA工具.bat` —— 隐藏控制台启动 Web 界面并自动打开浏览器；端口被占用时自动尝试后续端口（8765–8784）。
+**免安装版（推荐给朋友）**：到 Releases 下载 `BrokenArrowLogTool-*.zip`，解压到任意目录，双击 `启动BA工具.bat` 即可——包内自带 Python 运行时，无需安装任何环境。首次启动自动从 Steam 库定位 GameLogs 目录，浏览器自动打开仪表盘。
+
+**源码运行（需要 Python 3.12+）**：双击 `启动BA工具.bat`，或命令行：
 
 ```text
 python web_ui.py                     # Web 仪表盘（默认端口 8765）
@@ -24,9 +26,13 @@ python ba_tool.py scan --json r.json # 导出 JSON 报告
 python ba_tool.py watch              # 实时监控最新日志（JSON 事件）
 ```
 
+日志目录自动定位顺序：`--dir` 参数 → Steam `libraryfolders.vdf` 中所有库目录（`steamapps\common\broken_arrow\GameLogs`）→ 开发默认路径。自动检测失败时页面会显示明确指引，此时用 `--dir` 手动指定。
+
+本机重复双击不会堆叠实例：已在运行时会直接打开现有仪表盘页面；启动失败会弹窗而非静默退出。
+
 | 参数 | 说明 |
 |---|---|
-| `--dir <目录>` | GameLogs 目录（默认开发用 Steam 路径） |
+| `--dir <目录>` | GameLogs 目录（省略时自动探测 Steam 库） |
 | `--port N` | 首选端口；占用时自动递增，最多尝试 20 个 |
 | `--no-stats` | 离线模式，不发起任何 API 请求 |
 | `--no-browser` | 不自动打开浏览器 |

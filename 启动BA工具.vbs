@@ -2,6 +2,10 @@ Set shell = CreateObject("WScript.Shell")
 Set files = CreateObject("Scripting.FileSystemObject")
 base = files.GetParentFolderName(WScript.ScriptFullName)
 urlFile = base & "\ba-webui.url"
+runtimePy = base & "\runtime\python.exe"
+
+pythonCmd = "python"
+If files.FileExists(runtimePy) Then pythonCmd = """" & runtimePy & """"
 
 Function ReadUrl()
     ReadUrl = ""
@@ -31,7 +35,7 @@ End Function
 u = ReadUrl()
 oldContent = u
 If Not Alive(u) Then
-    shell.Run "cmd /c cd /d """ & base & """ && python web_ui.py --no-browser", 0, False
+    shell.Run "cmd /c cd /d """ & base & """ && " & pythonCmd & " web_ui.py --no-browser", 0, False
     ok = False
     For i = 1 To 40
         WScript.Sleep 300

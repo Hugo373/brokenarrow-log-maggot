@@ -1,0 +1,40 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  PYVER: "3.12.10"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Smoke test gate
+        run: python smoke_test.py
+      - name: Assemble portable package
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "https://www.python.org/ftp/python/$env:PYVER/python-$env:PYVER-embed-amd64.zip" -OutFile pyembed.zip
+          Expand-Archive pyembed.zip dist/runtime
+          $pth = Get-ChildItem "dist/runtime/python*._pth"
+          Add-Content $pth.FullName ".."
+          Copy-Item ba_tool.py, analysis_engine.py, scoring.py, relationships.py, web_ui.py, web_ui.html, README.md, *.bat, *.vbs -Destination dist
+          Compress-Archive dist/* "BrokenArrowLogTool-$($env:GITHUB_REF_NAME).zip"
+          Get-ChildItem *.zip
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-zip
+          path: "*.zip"
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.zip"
