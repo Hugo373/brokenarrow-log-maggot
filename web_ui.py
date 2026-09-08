@@ -192,6 +192,8 @@ def main():
    raise
  if server is None:raise SystemExit(f'ports {a.port}-{a.port+19} all busy / 端口全部被占用')
  server.state=state;url=f'http://127.0.0.1:{port}';print(f'Web UI: {url}',flush=True)
+ try:Path(__file__).with_name('ba-webui.url').write_text(f'{url}|{int(time.time())}',encoding='utf8')
+ except OSError:pass
  if not a.no_browser:threading.Timer(0.8,lambda:webbrowser.open(url)).start()
  server.serve_forever()
 if __name__=='__main__':main()
