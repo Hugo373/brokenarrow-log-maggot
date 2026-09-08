@@ -136,7 +136,10 @@ def main() -> int:
             pc.kill(); out = pc.communicate()[0]
             print("!! same-build instance hung; incumbent said:\n" + (pb and pb.stdout and pb.stdout.read() or "[no output]")[:600])
         check("same build exits quietly", pc.returncode == 0 and "already running" in out, out[:80])
-        check("incumbent still serving", json.loads(http(port2, "/api/state")[1]).get("build") == "build-b")
+        try:
+            check("incumbent still serving", json.loads(http(port2, "/api/state")[1]).get("build") == "build-b")
+        except (OSError, ValueError, RuntimeError) as exc:
+            check("incumbent still serving", False, type(exc).__name__)
     finally:
         for p in (pa, pb):
             if p and p.poll() is None:
