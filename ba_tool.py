@@ -197,6 +197,8 @@ class MatchAnalysis:
         if not self.client or not match.fid or not match.players:
             return
         failed = any((match.player_stats.get(p.id) or {}).get("status") == "api_error" for p in match.players if not p.id.startswith("-"))
+        if failed and getattr(self.client, "last_error", None) == "quota_exceeded":
+            failed = False  # 配额闸已关：重试在闸开前必然失败，不做无用功
         if not failed:
             self.retry_state.pop(str(match.fid), None)
             return

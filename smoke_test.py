@@ -164,6 +164,21 @@ def main() -> int:
     finally:
         ba_tool.MATCH_RETRY_DELAYS = old_delays
 
+    # 配额耗尽时：有过期缓存则继续服务，无缓存给可读错误而不是无意义重试
+    from web_ui import ResilientClient, Cache
+    qcache = Cache(workdir / "qc-cache.json")
+    qkey = "player:" + json.dumps({"stbid": "42"}, sort_keys=True)
+    qcache.put(qkey, {"elo": 1})
+    qcache.d["entries"][qkey]["time"] = 0  # 强制变为 stale
+    rquota = Quota(workdir / "qc-quota.json", limit=0)
+    rc = ResilientClient("https://127.0.0.1:9", qcache, rquota)
+    check("quota exhausted serves stale cache", rc.player_report("42") == {"elo": 1})
+    try:
+        rc.player_report("43")
+        check("quota exhausted raises clear error", False, "no error raised")
+    except RuntimeError as exc:
+        check("quota exhausted raises clear error", "配额" in str(exc))
+
     failed = [name for name, ok, _ in CHECKS if not ok]
     for name, ok, detail in CHECKS:
         print(f"{'PASS' if ok else 'FAIL'}  {name}" + (f"  ({detail})" if detail and not ok else ""))
