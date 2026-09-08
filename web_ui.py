@@ -158,6 +158,11 @@ class State:
  def json(self):
   with self.lock:return {'connected':bool(self.file),'file':self.file,'phase':self.phase,'last_event':self.last_event,'updated':self.updated,'match':self.match,'report':self.report,'battle_review':self.review,'stats_enabled':bool(self.client),'api_status':self.client.status() if self.client else {'offline':True},'cache':self.cache.summary(),'parser_health':self.health,'blacklist':self.relationships.list_blacklist()}
 
+class Server(ThreadingHTTPServer):
+ # Windows SO_REUSEADDR allows a second process to bind a taken port without error;
+ # disabling it is what makes the port-fallback loop actually observe conflicts.
+ allow_reuse_address = False
+
 class Handler(BaseHTTPRequestHandler):
  def do_GET(self):
   try:
@@ -178,7 +183,7 @@ def main():
  ap=argparse.ArgumentParser();ap.add_argument('--dir',type=Path,default=Path(r'D:\SteamLibrary\steamapps\common\broken_arrow\GameLogs'));ap.add_argument('--port',type=int,default=8765);ap.add_argument('--no-stats',action='store_true');ap.add_argument('--no-browser',action='store_true');ap.add_argument('--daily-limit',type=int,default=300);ap.add_argument('--cache',type=Path,default=Path('ba-api-cache.json'));a=ap.parse_args();cache=Cache(a.cache);quota=Quota(a.cache.with_name('ba-api-quota.json'),a.daily_limit);client=None if a.no_stats else ResilientClient('https://app.batrace.top',cache,quota);state=State(a.dir,client,cache);parser=LogParser(state.event);watcher=LogWatcher(a.dir,parser);threading.Thread(target=lambda:(setattr(state,'file','starting'),watcher.run()),daemon=True).start()
  server=None
  for port in range(a.port,a.port+20):
-  try:server=ThreadingHTTPServer(('127.0.0.1',port),Handler);break
+  try:server=Server(('127.0.0.1',port),Handler);break
   except OSError as e:
    if getattr(e,'winerror',None)==10048 or e.errno in (48,98):continue
    raise
