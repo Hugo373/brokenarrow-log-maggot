@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Local Broken Arrow workflow dashboard with resilient public statistics."""
 from __future__ import annotations
-import argparse, json, threading, time, webbrowser
+import argparse, hashlib, json, os, threading, time, webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -12,6 +12,8 @@ from analysis_engine import analyze_single_match
 from relationships import RelationshipDB
 
 HTML=Path(__file__).with_name("web_ui.html").read_text(encoding="utf-8")
+try:BUILD=os.environ.get('BA_BUILD_ID') or hashlib.sha1(Path(__file__).read_bytes()).hexdigest()[:8]
+except OSError:BUILD='dev'
 
 class Cache:
  PREFIX_TTL={'match':604800,'player':21600,'index':21600}
@@ -179,7 +181,10 @@ class State:
    except (HTTPError,URLError,TimeoutError,OSError,ValueError,RuntimeError,TypeError,KeyError):pass
    time.sleep(3600)
  def json(self):
-  with self.lock:return {'connected':bool(self.file),'file':self.file,'phase':self.phase,'last_event':self.last_event,'updated':self.updated,'match':self.match,'report':self.report,'battle_review':self.review,'stats_enabled':bool(self.client),'api_status':self.client.status() if self.client else {'offline':True},'cache':self.cache.summary(),'parser_health':self.health,'blacklist':self.relationships.list_blacklist(),'ban_alerts':self.ban_alerts}
+  with self.lock:return {'connected':bool(self.file),'file':self.file,'phase':self.phase,'last_event':self.last_event,'updated':self.updated,'match':self.match,'report':self.report,'battle_review':self.review,'stats_enabled':bool(self.client),'api_status':self.client.status() if self.client else {'offline':True},'cache':self.cache.summary(),'parser_health':self.health,'blacklist':self.relationships.list_blacklist(),'ban_alerts':self.ban_alerts,'build':BUILD}
+
+def _urlfile() -> Path:
+ return Path(os.environ.get('BA_URL_FILE') or Path(__file__).with_name('ba-webui.url'))
 
 class Server(ThreadingHTTPServer):
  # Windows SO_REUSEADDR allows a second process to bind a taken port without error;
@@ -203,7 +208,11 @@ class Handler(BaseHTTPRequestHandler):
   except OSError as e:
    if getattr(e,'winerror',None)!=10053:raise
  def do_POST(self):
-  if urlparse(self.path).path!='/api/blacklist':self.send_error(404);return
+  p=urlparse(self.path).path
+  if p=='/api/shutdown':
+   body=b'{"ok":true}';self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+   threading.Thread(target=self.server.shutdown,daemon=True).start();return
+  if p!='/api/blacklist':self.send_error(404);return
   try:
    data=json.loads(self.rfile.read(int(self.headers.get('Content-Length','0'))));rel=self.server.state.relationships
    if data.get('op')=='remove':rel.remove_blacklist(str(data.get('id')))
@@ -214,6 +223,23 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
  ap=argparse.ArgumentParser();ap.add_argument('--dir',type=Path,default=None);ap.add_argument('--port',type=int,default=8765);ap.add_argument('--no-stats',action='store_true');ap.add_argument('--no-browser',action='store_true');ap.add_argument('--daily-limit',type=int,default=300);ap.add_argument('--rel-db',type=Path,default=None);ap.add_argument('--cache',type=Path,default=Path('ba-api-cache.json'));a=ap.parse_args()
+ # 接管语义：同指纹已在运行则静默退出；不同指纹则关闭旧实例后接管
+ urlfile=_urlfile();old_url=None
+ try:old_url=urlfile.read_text(encoding='utf8').split('|')[0].strip()
+ except OSError:pass
+ if old_url:
+  try:
+   st=json.loads(urlopen(old_url+'/api/state',timeout=2).read())
+   if st.get('build')==BUILD:
+    print(f'already running: {old_url} / 已有同版本实例在运行',flush=True);return
+   urlopen(Request(old_url+'/api/shutdown',data=b'{}',headers={'Content-Type':'application/json'}),timeout=3).read()
+   deadline=time.time()+4
+   while time.time()<deadline:
+    try:urlopen(old_url+'/api/state',timeout=.5)
+    except Exception:break
+    time.sleep(.3)
+   print(f'took over previous instance at {old_url} / 已接管旧实例',flush=True)
+  except Exception:pass
  if a.dir is None:a.dir=find_gamelogs() or DEFAULT_GAMELOGS
  cache=Cache(a.cache);quota=Quota(a.cache.with_name('ba-api-quota.json'),a.daily_limit);client=None if a.no_stats else ResilientClient('https://app.batrace.top',cache,quota);state=State(a.dir,client,cache,a.rel_db)
  if not a.dir.is_dir():state.phase=f'未找到日志目录 / GameLogs not found: {a.dir} —— 请确认游戏已安装并进入过一次对局，或用 --dir 指定路径'
@@ -226,7 +252,7 @@ def main():
    raise
  if server is None:raise SystemExit(f'ports {a.port}-{a.port+19} all busy / 端口全部被占用')
  server.state=state;url=f'http://127.0.0.1:{port}';print(f'Web UI: {url}',flush=True)
- try:Path(__file__).with_name('ba-webui.url').write_text(f'{url}|{int(time.time())}',encoding='utf8')
+ try:_urlfile().write_text(f'{url}|{int(time.time())}',encoding='utf8')
  except OSError:pass
  if not a.no_browser:threading.Timer(0.8,lambda:webbrowser.open(url)).start()
  server.serve_forever()

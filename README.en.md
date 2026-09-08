@@ -8,7 +8,7 @@ A read-only local tool for Broken Arrow GameLogs: it detects the live match rost
 
 1. Open [Releases](../../releases) and download the latest `BrokenArrowLogTool-*.zip`
 2. Extract it anywhere (keep it out of the game directory)
-3. Double-click `启动BA工具.bat` — the dashboard opens in your browser automatically
+3. Double-click `start.bat` — the dashboard opens in your browser automatically
 
 No Python or other dependencies to install; a runtime is bundled. On first launch the GameLogs folder is located automatically via your Steam libraries. Enter a match, wait a few seconds after the roster appears, and every player's index shows up in the pre-match tab.
 

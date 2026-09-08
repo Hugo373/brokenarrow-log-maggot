@@ -8,6 +8,7 @@ Zero network, zero game installation required:
 """
 from __future__ import annotations
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -111,6 +112,31 @@ def main() -> int:
     finally:
         proc.kill()
         proc.wait(timeout=10)
+
+    # 接管语义：不同构建关停旧实例并替换；同构建直接复用退出
+    sock2 = socket.socket(); sock2.bind(("127.0.0.1", 0)); port2 = sock2.getsockname()[1]; sock2.close()
+    def boot(build):
+        env = dict(os.environ, BA_BUILD_ID=build, BA_URL_FILE=str(workdir / "takeover.url"))
+        return subprocess.Popen(
+            [sys.executable, str(ROOT / "web_ui.py"), "--dir", str(logs), "--port", str(port2),
+             "--no-stats", "--no-browser", "--rel-db", str(workdir / "r2.sqlite"),
+             "--cache", str(workdir / "c2.json")],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=ROOT, env=env)
+    pa = boot("build-a"); pb = None
+    try:
+        check("takeover baseline up", wait_for(lambda: http(port2, "/api/state")[0] == 200, 20))
+        check("build fingerprint exposed", json.loads(http(port2, "/api/state")[1]).get("build") == "build-a")
+        pb = boot("build-b")
+        check("takeover replaces different build", wait_for(
+            lambda: pa.poll() is not None and json.loads(http(port2, "/api/state")[1]).get("build") == "build-b", 25))
+        pc = boot("build-b")
+        out = pc.communicate(timeout=15)[0]
+        check("same build exits quietly", pc.returncode == 0 and "already running" in out, out[:80])
+        check("incumbent still serving", json.loads(http(port2, "/api/state")[1]).get("build") == "build-b")
+    finally:
+        for p in (pa, pb):
+            if p and p.poll() is None:
+                p.kill(); p.wait(timeout=10)
 
     # Quota is in-process logic; assert it directly rather than burning real requests.
     from web_ui import Quota
