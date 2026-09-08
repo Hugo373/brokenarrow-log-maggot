@@ -4,6 +4,14 @@
 
 Read-only local analyzer for Broken Arrow GameLogs: detects the live match roster, queries public statistics for per-player performance indices, and presents pre-match / post-match dashboards in the browser. It never touches game memory, injects code, installs input hooks, or modifies game files.
 
+## 三分钟上手
+
+1. 打开 [Releases](../../releases) 页面，下载最新的 `BrokenArrowLogTool-*.zip`
+2. 解压到任意目录（无需安装在某个固定位置，也别放在游戏目录里）
+3. 双击 `启动BA工具.bat` —— 浏览器会自动打开仪表盘
+
+**不需要安装 Python 或任何依赖**，包内已自带运行时。首次启动会自动从 Steam 库定位日志目录。进入一局游戏、名单出现后等几秒，每位玩家的指数就会自动填进「局前速览」。
+
 ## 功能概览 / Features
 
 - **实时日志监控**：字节偏移增量读取最新 Gamelog，大厅/对局/名单/FID 事件状态机，解析遥测
