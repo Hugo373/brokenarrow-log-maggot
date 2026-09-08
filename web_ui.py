@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
-from ba_tool import LogParser, LogWatcher, MatchAnalysis, PublicStatsClient, CaptchaRequired, match_from_dict, human_report, scan, find_gamelogs, DEFAULT_GAMELOGS
+from ba_tool import LogParser, LogWatcher, MatchAnalysis, PublicStatsClient, CaptchaRequired, match_from_dict, human_report, scan, find_gamelogs, DEFAULT_GAMELOGS, MATCH_RETRY_DELAYS
 from analysis_engine import analyze_single_match
 from relationships import RelationshipDB
 
@@ -151,7 +151,7 @@ class State:
     if isinstance(dlt,(int,float)) and abs(dlt)>=0.01:self.relationships.record_result(str(m.fid),dlt>0)
    with self.lock:self.match=self.annotate(m,self.api_party(m));self.report=human_report(m);self.phase='match finished / 对局结束';self.updated=time.time()
    if self.client and m.fid:threading.Thread(target=self.fetch_review,args=(m.fid,),daemon=True).start()
- def fetch_review(self,fid):
+ def fetch_review(self,fid,retries=0):
   with self.lock:self.review={'status':'loading','match_id':str(fid)};self.updated=time.time()
   for attempt in range(3):
    try:
@@ -162,6 +162,9 @@ class State:
     if attempt==2:
      r={'status':'unavailable','match_id':str(fid),'reason':type(e).__name__}
      with self.lock:self.review=r;self.updated=time.time()
+     if self.client and retries<len(MATCH_RETRY_DELAYS):
+      delay=max(MATCH_RETRY_DELAYS[retries],float(getattr(self.client,'open_until',0))-time.time()+5.0,0.0)
+      timer=threading.Timer(delay,self.fetch_review,args=(fid,retries+1));timer.daemon=True;timer.start()
     else: time.sleep(2 ** attempt)
  def check_bans(self):
   raw=self.client._get('/api/leaderboard/ban',{'limit':1000})

@@ -136,6 +136,34 @@ def main() -> int:
     check("ban baseline silent", rel.apply_ban_snapshot([{"id": 99, "name": "x"}]) == [])
     check("ban alerts only met newcomers", rel.apply_ban_snapshot([{"id": 99, "name": "x"}, {"id": "3", "name": "foe"}, {"id": "5", "name": "never-met"}]) == [{"id": "3", "name": "foe"}], "foe3")
 
+    # 玩家查询失败后应被自动重试恢复（模拟先全网失败、随后恢复）
+    import ba_tool
+    from ba_tool import Match, Player, MatchAnalysis
+    old_delays = ba_tool.MATCH_RETRY_DELAYS
+    ba_tool.MATCH_RETRY_DELAYS = (0.2, 0.4, 0.8)
+    class FlakyClient:
+        def __init__(self):
+            self.calls = 0
+        def player_report(self, _pid):
+            self.calls += 1
+            if self.calls <= 3:
+                raise RuntimeError("simulated outage")
+            return {"trend": {"points": []}, "matchCount": 0}
+    mt = Match(fid="t-retry")
+    mt.players = [Player("11", "A", "Alpha"), Player("22", "B", "Bravo")]
+    ma = MatchAnalysis(FlakyClient())
+    try:
+        ma.query_match(mt)
+        first = [mt.player_stats[p.id]["status"] for p in mt.players]
+        check("failed queries marked api_error", all(s == "api_error" for s in first), str(first))
+        deadline = time.time() + 8
+        while time.time() < deadline and any((mt.player_stats.get(p.id) or {}).get("status") == "api_error" for p in mt.players):
+            time.sleep(0.2)
+        second = [mt.player_stats[p.id]["status"] for p in mt.players]
+        check("auto retry recovers players", all(s != "api_error" for s in second), str(second))
+    finally:
+        ba_tool.MATCH_RETRY_DELAYS = old_delays
+
     failed = [name for name, ok, _ in CHECKS if not ok]
     for name, ok, detail in CHECKS:
         print(f"{'PASS' if ok else 'FAIL'}  {name}" + (f"  ({detail})" if detail and not ok else ""))

@@ -159,11 +159,15 @@ def human_report(match: Match) -> str:
     lines.append(f"Roster: {len(real)} human, {len(match.players) - len(real)} bot(s) / 真人 {len(real)}，机器人 {len(match.players) - len(real)}")
     return "\n".join(lines)
 
+MATCH_RETRY_DELAYS = (75.0, 180.0, 360.0)
+
 class MatchAnalysis:
     def __init__(self, client: Optional[PublicStatsClient], on_update: Optional[Callable[[Match], None]] = None):
         self.client = client
         self.on_update = on_update or (lambda _match: None)
         self.timer: Optional[threading.Timer] = None
+        self.retry_timer: Optional[threading.Timer] = None
+        self.retry_state: dict[str, int] = {}
         self.lock = threading.Lock()
         self.stats_by_fid: dict[str, dict[str, dict]] = {}
 
@@ -173,13 +177,51 @@ class MatchAnalysis:
         with self.lock:
             if self.timer:
                 self.timer.cancel()
+            if self.retry_timer:
+                self.retry_timer.cancel()
+                self.retry_timer = None
+            self.retry_state.pop(str(match.fid), None)
             self.timer = threading.Timer(2.0, self.query_match, args=(match,))
             self.timer.daemon = True
             self.timer.start()
 
+    def retry_failed(self, match: Match) -> None:
+        with self.lock:
+            self.retry_timer = None
+        for player in list(match.players):
+            if (match.player_stats.get(player.id) or {}).get("status") == "api_error":
+                match.player_stats.pop(player.id, None)
+        self.query_match(match)
+
+    def _schedule_retry(self, match: Match) -> None:
+        if not self.client or not match.fid or not match.players:
+            return
+        failed = any((match.player_stats.get(p.id) or {}).get("status") == "api_error" for p in match.players if not p.id.startswith("-"))
+        if not failed:
+            self.retry_state.pop(str(match.fid), None)
+            return
+        used = self.retry_state.get(str(match.fid), 0)
+        if used >= len(MATCH_RETRY_DELAYS):
+            return
+        self.retry_state[str(match.fid)] = used + 1
+        open_until = float(getattr(self.client, "open_until", 0))
+        delay = max(MATCH_RETRY_DELAYS[used], open_until - time.time() + 5.0, 0.0)
+        with self.lock:
+            if self.retry_timer:
+                self.retry_timer.cancel()
+            self.retry_timer = threading.Timer(delay, self.retry_failed, args=(match,))
+            self.retry_timer.daemon = True
+            self.retry_timer.start()
+
     def query_match(self, match: Match) -> None:
         if not self.client:
             return
+        try:
+            self._query_all(match)
+        finally:
+            self._schedule_retry(match)
+
+    def _query_all(self, match: Match) -> None:
         for player in list(match.players):
             if player.id.startswith("-") or player.id in match.player_stats:
                 continue
