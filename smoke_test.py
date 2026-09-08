@@ -65,7 +65,7 @@ def main() -> int:
          "--no-stats", "--no-browser", "--daily-limit", "10",
          "--rel-db", str(workdir / "rel.sqlite"),
          "--cache", str(workdir / "cache.json")],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=ROOT)
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace", cwd=ROOT)
     try:
         check("server starts and serves UI", wait_for(lambda: http(port, "/")[0] == 200, 20))
         status, body = http(port, "/")
@@ -121,7 +121,7 @@ def main() -> int:
             [sys.executable, str(ROOT / "web_ui.py"), "--dir", str(logs), "--port", str(port2),
              "--no-stats", "--no-browser", "--rel-db", str(workdir / "r2.sqlite"),
              "--cache", str(workdir / "c2.json")],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=ROOT, env=env)
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace", cwd=ROOT, env=env)
     pa = boot("build-a"); pb = None
     try:
         check("takeover baseline up", wait_for(lambda: http(port2, "/api/state")[0] == 200, 20))
