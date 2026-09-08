@@ -83,6 +83,11 @@ def main() -> int:
 
         check("malformed POST is 400", http(port, "/api/blacklist", raw_body=b"{broken")[0] == 400)
 
+        status, _ = http(port, "/api/blacklist", {"id": "999001", "op": "remove"})
+        check("blacklist remove", status == 200, str(status))
+        _, body = http(port, "/api/state")
+        check("blacklist gone after remove", not any(x.get("id") == "999001" for x in json.loads(body).get("blacklist", [])))
+
         with (logs / "Gamelog__2099_01_01__00_00.log").open("a", encoding="utf-8") as handle:
             handle.write("[2099-01-01 00:00:01]\nLog: GetPersonaName SmokeTester\nLog: Enter to lobby (id: 7)\n")
         check("log pipeline reaches parser", wait_for(

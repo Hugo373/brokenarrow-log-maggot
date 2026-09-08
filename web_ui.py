@@ -175,7 +175,10 @@ class Handler(BaseHTTPRequestHandler):
  def do_POST(self):
   if urlparse(self.path).path!='/api/blacklist':self.send_error(404);return
   try:
-   data=json.loads(self.rfile.read(int(self.headers.get('Content-Length','0'))));self.server.state.relationships.set_blacklist(str(data.get('id')),str(data.get('note','')));body=b'{"ok":true}';self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+   data=json.loads(self.rfile.read(int(self.headers.get('Content-Length','0'))));rel=self.server.state.relationships
+   if data.get('op')=='remove':rel.remove_blacklist(str(data.get('id')))
+   else:rel.set_blacklist(str(data.get('id')),str(data.get('note','')))
+   body=b'{"ok":true}';self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
   except Exception as e:self.send_error(400,str(e))
  def log_message(self,*args):pass
 
