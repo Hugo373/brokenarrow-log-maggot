@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+ba-api-cache.json
+ba-api-quota.json
+ba-relationships.sqlite
+scan-report.json
