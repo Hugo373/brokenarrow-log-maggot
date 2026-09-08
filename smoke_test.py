@@ -130,7 +130,11 @@ def main() -> int:
         check("takeover replaces different build", wait_for(
             lambda: pa.poll() is not None and json.loads(http(port2, "/api/state")[1]).get("build") == "build-b", 25))
         pc = boot("build-b")
-        out = pc.communicate(timeout=15)[0]
+        try:
+            out = pc.communicate(timeout=15)[0]
+        except subprocess.TimeoutExpired:
+            pc.kill(); out = pc.communicate()[0]
+            print("!! same-build instance hung; incumbent said:\n" + (pb and pb.stdout and pb.stdout.read() or "[no output]")[:600])
         check("same build exits quietly", pc.returncode == 0 and "already running" in out, out[:80])
         check("incumbent still serving", json.loads(http(port2, "/api/state")[1]).get("build") == "build-b")
     finally:

@@ -230,16 +230,22 @@ def main():
  if old_url:
   try:
    st=json.loads(urlopen(old_url+'/api/state',timeout=2).read())
+  except OSError:
+   st=None  # 拒连/超时：旧实例已死或挂死，按正常启动走
+  except (ValueError,RuntimeError):
+   st={'build':None}  # 有服务但应答异常：视为未知旧实例，接管替换
+  if st is not None:
    if st.get('build')==BUILD:
     print(f'already running: {old_url} / 已有同版本实例在运行',flush=True);return
-   urlopen(Request(old_url+'/api/shutdown',data=b'{}',headers={'Content-Type':'application/json'}),timeout=3).read()
-   deadline=time.time()+4
-   while time.time()<deadline:
-    try:urlopen(old_url+'/api/state',timeout=.5)
-    except Exception:break
-    time.sleep(.3)
-   print(f'took over previous instance at {old_url} / 已接管旧实例',flush=True)
-  except Exception:pass
+   try:
+    urlopen(Request(old_url+'/api/shutdown',data=b'{}',headers={'Content-Type':'application/json'}),timeout=3).read()
+    deadline=time.time()+4
+    while time.time()<deadline:
+     try:urlopen(old_url+'/api/state',timeout=.5)
+     except Exception:break
+     time.sleep(.3)
+    print(f'took over previous instance at {old_url} / 已接管旧实例',flush=True)
+   except OSError:pass
  if a.dir is None:a.dir=find_gamelogs() or DEFAULT_GAMELOGS
  cache=Cache(a.cache);quota=Quota(a.cache.with_name('ba-api-quota.json'),a.daily_limit);client=None if a.no_stats else ResilientClient('https://app.batrace.top',cache,quota);state=State(a.dir,client,cache,a.rel_db)
  if not a.dir.is_dir():state.phase=f'未找到日志目录 / GameLogs not found: {a.dir} —— 请确认游戏已安装并进入过一次对局，或用 --dir 指定路径'
