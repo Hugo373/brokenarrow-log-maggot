@@ -216,6 +216,7 @@ class ResilientClient(PublicStatsClient):
   try:
    v=super().maggot_index(p);self.cache.put(key,v);return v
   except Exception:self.cache.fail();return stale
+ def ban_list(self):return self._cached('ban','/api/leaderboard/ban',{'limit':1000})
 
 def compact_player_report(data: dict) -> dict:
     trend = data.get("trend") if isinstance(data.get("trend"), dict) else {}

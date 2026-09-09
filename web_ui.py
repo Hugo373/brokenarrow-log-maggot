@@ -73,7 +73,7 @@ class State:
       timer=threading.Timer(delay,self.fetch_review,args=(fid,retries+1));timer.daemon=True;timer.start()
     else: time.sleep(2 ** attempt)
  def check_bans(self):
-  raw=self.client._get('/api/leaderboard/ban',{'limit':1000})
+  raw=self.client.ban_list()
   alerts=self.relationships.apply_ban_snapshot((raw or {}).get('leaderboard') or [])
   if alerts:
    with self.lock:self.ban_alerts=alerts;self.updated=time.time()
