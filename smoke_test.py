@@ -170,7 +170,7 @@ def main() -> int:
                 p.kill(); p.wait(timeout=10)
 
     # Quota is in-process logic; assert it directly rather than burning real requests.
-    from web_ui import Quota
+    from ba_tool import Quota
     quota = Quota(workdir / "quota.json", limit=2)
     check("quota allows up to limit", quota.try_consume() and quota.try_consume())
     check("quota blocks past limit", not quota.try_consume())
@@ -278,7 +278,7 @@ def main() -> int:
     check("concurrent query overlaps network waits", elapsed < 1.0, f"{elapsed:.2f}s for 4x0.3s (serial would be 1.2s)")
 
     # 配额耗尽时：有过期缓存则继续服务，无缓存给可读错误而不是无意义重试
-    from web_ui import ResilientClient, Cache
+    from ba_tool import ResilientClient, Cache
     qcache = Cache(workdir / "qc-cache.json")
     qkey = "player:" + json.dumps({"stbid": "42"}, sort_keys=True)
     qcache.put(qkey, {"elo": 1})

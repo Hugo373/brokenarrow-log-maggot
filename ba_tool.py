@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable, Optional
+from urllib.error import HTTPError, URLError
 from analysis_engine import historical_performance
 
 TIMESTAMP_RE = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:\.\d+)?)\]$")
@@ -115,6 +116,106 @@ class PublicStatsClient:
         average = sum(ranks) / len(ranks)
         normalized = (average - 1) / 4
         return round(1 + ((1 - math.cos(normalized * math.pi)) / 2) * 9, 1)
+
+class Cache:
+ PREFIX_TTL={'match':604800,'player':21600,'index':21600}
+ def __init__(self,path,ttl=21600):
+  self.path=Path(path);self.ttl=ttl;self.lock=threading.Lock();self.d={'entries':{},'hits':0,'misses':0,'failures':0};self.last_write=0
+  try:self.d.update(json.loads(self.path.read_text(encoding='utf8')))
+  except (OSError,ValueError):pass
+ def get(self,k):
+  with self.lock:
+   x=self.d['entries'].get(k)
+   if not x:self.d['misses']+=1;return None,None
+   ttl=self.PREFIX_TTL.get(k.split(':',1)[0],self.ttl)
+   fresh=time.time()-x.get('time',0)<=ttl
+   self.d['hits' if fresh else 'misses']+=1;return x.get('value'),fresh
+ def put(self,k,v):
+  with self.lock:
+   self.d['entries'][k]={'time':time.time(),'value':v};now=time.time()
+   if now-self.last_write<3:return
+   self.last_write=now;self._write()
+ def flush(self):
+  with self.lock:self.last_write=time.time();self._write()
+ def _write(self):
+  try:t=self.path.with_name(self.path.name+'.tmp');self.path.parent.mkdir(parents=True,exist_ok=True);t.write_text(json.dumps(self.d,ensure_ascii=False),encoding='utf8');os.replace(t,self.path)
+  except OSError:pass
+ def fail(self):
+  with self.lock:self.d['failures']+=1
+ def summary(self):
+  with self.lock:return {'entries':len(self.d['entries']),'hits':self.d['hits'],'misses':self.d['misses'],'failures':self.d['failures']}
+
+class Quota:
+ """Rolling 24h request budget, persisted so restarts cannot reset it."""
+ def __init__(self,path,limit=300):
+  self.path=Path(path);self.limit=limit;self.lock=threading.Lock();self.calls=[]
+  try:self.calls=[float(t) for t in json.loads(self.path.read_text(encoding='utf8')) if float(t)>time.time()-86400]
+  except (OSError,ValueError,TypeError):pass
+ def _save(self):
+  try:t=self.path.with_name(self.path.name+'.tmp');t.write_text(json.dumps(self.calls[-86400:]),encoding='utf8');os.replace(t,self.path)
+  except OSError:pass
+ def remaining(self):
+  with self.lock:
+   self.calls=[t for t in self.calls if t>time.time()-86400]
+   return max(0,self.limit-len(self.calls))
+ def try_consume(self):
+  with self.lock:
+   self.calls=[t for t in self.calls if t>time.time()-86400]
+   if len(self.calls)>=self.limit:return False
+   # One real network attempt costs one slot, whether it succeeds or not.
+   self.calls.append(time.time());self._save();return True
+ def summary(self):
+  with self.lock:
+   used=len([t for t in self.calls if t>time.time()-86400])
+   return {'used':used,'limit':self.limit,'remaining':max(0,self.limit-used)}
+
+class ResilientClient(PublicStatsClient):
+ def __init__(self,base,cache,quota=None):super().__init__(base,8);self.cache=cache;self.quota=quota;self.lock=threading.Lock();self.last=0;self.open_until=0;self.failures=0;self.last_error=None
+ def status(self):
+  s={'circuit_open':time.time()<self.open_until,'circuit_until':self.open_until,'consecutive_failures':self.failures,'last_error':self.last_error}
+  if self.quota:s['quota']=self.quota.summary()
+  return s
+ def _cached(self,k,path,params):
+  key=k+':'+json.dumps(params,sort_keys=True);stale,fresh=self.cache.get(key)
+  if fresh:return stale
+  if time.time()<self.open_until:
+   if stale is not None:return stale
+   raise RuntimeError('circuit_open')
+  if self.quota is not None and not self.quota.try_consume():
+   self.last_error='quota_exceeded'
+   if stale is not None:return stale
+   raise RuntimeError('daily quota exhausted / 今日配额已用完')
+  for attempt in range(3):
+   try:
+    with self.lock:
+     delay=.35-(time.time()-self.last)
+     if delay>0:time.sleep(delay)
+     self.last=time.time()
+    v=super()._get(path,params)
+    self.cache.put(key,v);self.failures=0;self.last_error=None;return v
+   except CaptchaRequired as e:
+    self.last_error=str(e);self.open_until=time.time()+600;break
+   except HTTPError as e:
+    self.last_error=f'HTTP {e.code}'
+    if e.code==429:self.open_until=time.time()+30;break
+    if e.code in (401,403):self.open_until=time.time()+300;break
+    if e.code==404:break
+   except (URLError,TimeoutError,OSError,ValueError,json.JSONDecodeError) as e:self.last_error=type(e).__name__
+   if attempt<2:time.sleep(.5*(2**attempt))
+  self.failures+=1;self.cache.fail()
+  if self.failures>=5:self.open_until=time.time()+60
+  if stale is not None:return stale
+  raise RuntimeError(self.last_error or 'api_unavailable')
+ def player_report(self,p):return self._cached('player','/api/analysis/player',{'stbid':p})
+ def match_report(self,m):return self._cached('match','/api/analysis/match',{'matchid':m})
+ def maggot_index(self,p):
+  key='index:'+str(p);stale,fresh=self.cache.get(key)
+  if fresh:return stale
+  if self.quota is not None and not self.quota.try_consume():
+   self.last_error='quota_exceeded';return stale
+  try:
+   v=super().maggot_index(p);self.cache.put(key,v);return v
+  except Exception:self.cache.fail();return stale
 
 def compact_player_report(data: dict) -> dict:
     trend = data.get("trend") if isinstance(data.get("trend"), dict) else {}
@@ -577,6 +678,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     watch_cmd.add_argument("--interval", type=float, default=1.5)
     watch_cmd.add_argument("--stats-api", default="https://app.batrace.top", help="public stats API base URL")
     watch_cmd.add_argument("--no-stats", action="store_true", help="disable public player lookups")
+    watch_cmd.add_argument("--cache", type=Path, default=Path("ba-api-cache.json"), help="API response cache file")
+    watch_cmd.add_argument("--daily-limit", type=int, default=300, help="rolling 24h API request budget")
     args = ap.parse_args(argv)
     if args.dir is None:
         args.dir = find_gamelogs() or DEFAULT_GAMELOGS
@@ -599,7 +702,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             args.json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"Report written to {args.json_path}")
         return 0
-    analysis = MatchAnalysis(None if args.no_stats else PublicStatsClient(args.stats_api))
+    c = Cache(args.cache)
+    q = Quota(Path(args.cache).with_name("ba-api-quota.json"), args.daily_limit)
+    analysis = MatchAnalysis(None if args.no_stats else ResilientClient(args.stats_api, c, q))
     def on_event(kind: str, data: dict) -> None:
         print(json.dumps({"event": kind, **data}, ensure_ascii=False))
         if kind == "roster" and data.get("match"):
@@ -607,7 +712,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         elif kind == "match_end" and data.get("match"):
             print(analysis.finish(match_from_dict(data["match"])), flush=True)
     parser = LogParser(on_event)
-    LogWatcher(args.dir, parser, args.interval).run()
+    try:
+        LogWatcher(args.dir, parser, args.interval).run()
+    finally:
+        c.flush()
+        q._save()
     return 0
 
 if __name__ == "__main__":
