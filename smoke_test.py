@@ -178,6 +178,21 @@ def main() -> int:
     check("quota summary", summary["used"] == 2 and summary["remaining"] == 0, json.dumps(summary))
     check("quota persists across reload", Quota(workdir / "quota.json", limit=2).summary()["used"] == 2)
 
+    # v2 格式：写 {"version":2,"limit":N,"calls":[...]}；历史裸数组自动迁移；持久化的 limit 优先级高于构造参数
+    qp = workdir / "quota-v2.json"
+    q5 = Quota(qp, limit=5)
+    q5.try_consume(); q5.try_consume()
+    s5 = Quota(qp, limit=5).summary()
+    check("quota v2 roundtrip", s5["used"] == 2 and s5["limit"] == 5, json.dumps(s5))
+    now = time.time()
+    legacy = workdir / "quota-legacy.json"
+    legacy.write_text(json.dumps([now, now]), encoding="utf-8")
+    check("legacy quota array migrates", Quota(legacy, limit=7).summary()["used"] == 2)
+    wrapped = workdir / "quota-wrapped.json"
+    wrapped.write_text(json.dumps({"version": 2, "limit": 3, "calls": [now, now]}), encoding="utf-8")
+    sw = Quota(wrapped, limit=9).summary()
+    check("persisted quota limit wins", sw["limit"] == 3, json.dumps(sw))
+
     from relationships import RelationshipDB
     rel = RelationshipDB(workdir / "rel-unit.sqlite")
     rel.add_match({"fid": "f1", "start_time": "2099-01-01 10:00:00", "map": "A", "players": [

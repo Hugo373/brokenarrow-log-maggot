@@ -130,7 +130,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
  try:sys.stdout.reconfigure(encoding='utf-8',errors='replace')
  except Exception:pass
- ap=argparse.ArgumentParser();ap.add_argument('--dir',type=Path,default=None);ap.add_argument('--port',type=int,default=8765);ap.add_argument('--no-stats',action='store_true');ap.add_argument('--no-browser',action='store_true');ap.add_argument('--daily-limit',type=int,default=300);ap.add_argument('--rel-db',type=Path,default=None);ap.add_argument('--cache',type=Path,default=Path('ba-api-cache.json'));a=ap.parse_args()
+ ap=argparse.ArgumentParser();ap.add_argument('--dir',type=Path,default=None);ap.add_argument('--port',type=int,default=8765);ap.add_argument('--no-stats',action='store_true');ap.add_argument('--no-browser',action='store_true');ap.add_argument('--daily-limit',type=int,default=300);ap.add_argument('--rel-db',type=Path,default=None);ap.add_argument('--cache',type=Path,default=Path('ba-api-cache.json'));ap.add_argument('--reset-quota',action='store_true');a=ap.parse_args()
  # 接管语义：同指纹已在运行则静默退出；不同指纹则关闭旧实例后接管
  urlfile=_urlfile();old_url=None
  try:old_url=urlfile.read_text(encoding='utf8').split('|')[0].strip()
@@ -155,7 +155,13 @@ def main():
     print(f'took over previous instance at {old_url} / 已接管旧实例',flush=True)
    except OSError:pass
  if a.dir is None:a.dir=find_gamelogs() or DEFAULT_GAMELOGS
- cache=Cache(a.cache);quota=Quota(a.cache.with_name('ba-api-quota.json'),a.daily_limit);client=None if a.no_stats else ResilientClient('https://app.batrace.top',cache,quota);state=State(a.dir,client,cache,a.rel_db)
+ qpath=a.cache.with_name('ba-api-quota.json')
+ if a.reset_quota:
+  try:qpath.unlink()
+  except OSError:pass
+  print('quota reset / 配额已重置',flush=True)
+ cache=Cache(a.cache);quota=Quota(qpath,a.daily_limit);client=None if a.no_stats else ResilientClient('https://app.batrace.top',cache,quota);state=State(a.dir,client,cache,a.rel_db)
+ if quota.limit!=quota.requested_limit:print(f'persisted quota limit {quota.limit} overrides --daily-limit {quota.requested_limit} / 配额上限以持久化文件为准',flush=True)
  if not a.dir.is_dir():state.phase=f'未找到日志目录 / GameLogs not found: {a.dir} —— 请确认游戏已安装并进入过一次对局，或用 --dir 指定路径'
  parser=LogParser(state.event);watcher=LogWatcher(a.dir,parser);threading.Thread(target=lambda:(setattr(state,'file','starting'),watcher.run()),daemon=True).start();threading.Thread(target=state.ban_loop,daemon=True).start()
  server=None

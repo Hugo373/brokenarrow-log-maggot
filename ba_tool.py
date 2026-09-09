@@ -148,11 +148,16 @@ class Cache:
 class Quota:
  """Rolling 24h request budget, persisted so restarts cannot reset it."""
  def __init__(self,path,limit=300):
-  self.path=Path(path);self.limit=limit;self.lock=threading.Lock();self.calls=[]
-  try:self.calls=[float(t) for t in json.loads(self.path.read_text(encoding='utf8')) if float(t)>time.time()-86400]
+  self.path=Path(path);self.limit=limit;self.requested_limit=limit;self.lock=threading.Lock();self.calls=[]
+  try:
+   data=json.loads(self.path.read_text(encoding='utf8'))
+   if isinstance(data,dict):  # v2 wrapped format: the persisted limit wins over the constructor argument
+    if isinstance(data.get('limit'),(int,float)):self.limit=int(data['limit'])
+    data=data.get('calls') or []
+   self.calls=[float(t) for t in data if float(t)>time.time()-86400]
   except (OSError,ValueError,TypeError):pass
  def _save(self):
-  try:t=self.path.with_name(self.path.name+'.tmp');t.write_text(json.dumps(self.calls[-86400:]),encoding='utf8');os.replace(t,self.path)
+  try:t=self.path.with_name(self.path.name+'.tmp');t.write_text(json.dumps({'version':2,'limit':self.limit,'calls':self.calls[-86400:]},ensure_ascii=False),encoding='utf8');os.replace(t,self.path)
   except OSError:pass
  def remaining(self):
   with self.lock:
@@ -684,6 +689,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     watch_cmd.add_argument("--no-stats", action="store_true", help="disable public player lookups")
     watch_cmd.add_argument("--cache", type=Path, default=Path("ba-api-cache.json"), help="API response cache file")
     watch_cmd.add_argument("--daily-limit", type=int, default=300, help="rolling 24h API request budget")
+    watch_cmd.add_argument("--reset-quota", action="store_true", help="clear the persisted daily quota before starting")
     args = ap.parse_args(argv)
     if args.dir is None:
         args.dir = find_gamelogs() or DEFAULT_GAMELOGS
@@ -706,6 +712,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             args.json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"Report written to {args.json_path}")
         return 0
+    if args.reset_quota:
+        try:
+            Path(args.cache).with_name("ba-api-quota.json").unlink()
+        except OSError:
+            pass
+        print("quota reset / 配额已重置", flush=True)
     c = Cache(args.cache)
     q = Quota(Path(args.cache).with_name("ba-api-quota.json"), args.daily_limit)
     analysis = MatchAnalysis(None if args.no_stats else ResilientClient(args.stats_api, c, q))
