@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 import urllib.error
@@ -75,6 +76,7 @@ def main() -> int:
         state = json.loads(body) if status == 200 else {}
         check("/api/state shape", status == 200 and all(k in state for k in ("connected", "phase", "cache", "blacklist")), str(status))
         check("stats disabled offline", state.get("stats_enabled") is False)
+        check("/api/state has history_rev", state.get("history_rev") == "0:", str(state.get("history_rev")))
 
         check("unknown path is 404", http(port, "/nope")[0] == 404)
 
@@ -101,6 +103,8 @@ def main() -> int:
             lambda: "local_name" in (json.loads(http(port, "/api/state")[1]).get("parser_health", {}).get("markers") or {}), 10))
         check("match end recorded", wait_for(
             lambda: "match_end" in (json.loads(http(port, "/api/state")[1]).get("parser_health", {}).get("markers") or {}), 10))
+        check("history_rev advances after match end", wait_for(
+            lambda: json.loads(http(port, "/api/state")[1]).get("history_rev") == "1:2099-01-01 00:05:01", 10))
 
         status, body = http(port, "/api/history")
         hist = json.loads(body) if status == 200 else []
@@ -186,9 +190,12 @@ def main() -> int:
     class FlakyClient:
         def __init__(self):
             self.calls = 0
+            self.lock = threading.Lock()
         def player_report(self, _pid):
-            self.calls += 1
-            if self.calls <= 3:
+            with self.lock:
+                self.calls += 1
+                calls = self.calls
+            if calls <= 3:
                 raise RuntimeError("simulated outage")
             return {"trend": {"points": []}, "matchCount": 0}
     mt = Match(fid="t-retry")
@@ -210,9 +217,12 @@ def main() -> int:
     class FlakyClient:
         def __init__(self):
             self.calls = 0
+            self.lock = threading.Lock()
         def player_report(self, _pid):
-            self.calls += 1
-            if self.calls <= 6:
+            with self.lock:
+                self.calls += 1
+                calls = self.calls
+            if calls <= 6:
                 raise RuntimeError("simulated long outage")
             return {"trend": {"points": []}, "matchCount": 0}
     mt2 = Match(fid="t-tail")
@@ -235,6 +245,26 @@ def main() -> int:
         check("long tail renews beyond budget", ma2.client.calls >= 7, str(ma2.client.calls))
     finally:
         ba_tool.MATCH_RETRY_DELAYS = old_delays
+
+    # 玩家级并发：4 名真人玩家各 0.3s 的 profile 查询应重叠，总耗时远小于串行 1.2s
+    class SlowClient:
+        def __init__(self):
+            self.calls = 0
+            self.lock = threading.Lock()
+        def player_report(self, _pid):
+            with self.lock:
+                self.calls += 1
+            time.sleep(0.3)
+            return {"trend": {"points": []}, "matchCount": 0}
+    mt3 = Match(fid="t-parallel")
+    mt3.players = [Player(str(200 + i), f"P{i}", "Alpha") for i in range(4)]
+    ma3 = MatchAnalysis(SlowClient())
+    start = time.time()
+    ma3.query_match(mt3)
+    elapsed = time.time() - start
+    statuses = {(mt3.player_stats.get(p.id) or {}).get("status") for p in mt3.players}
+    check("concurrent query reaches terminal for all players", statuses == {"insufficient_data"} and ma3.client.calls == 4, str(statuses))
+    check("concurrent query overlaps network waits", elapsed < 1.0, f"{elapsed:.2f}s for 4x0.3s (serial would be 1.2s)")
 
     # 配额耗尽时：有过期缓存则继续服务，无缓存给可读错误而不是无意义重试
     from web_ui import ResilientClient, Cache

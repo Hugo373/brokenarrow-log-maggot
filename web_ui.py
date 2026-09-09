@@ -85,7 +85,8 @@ class ResilientClient(PublicStatsClient):
     with self.lock:
      delay=.35-(time.time()-self.last)
      if delay>0:time.sleep(delay)
-     self.last=time.time();v=super()._get(path,params)
+     self.last=time.time()
+    v=super()._get(path,params)
     self.cache.put(key,v);self.failures=0;self.last_error=None;return v
    except CaptchaRequired as e:
     self.last_error=str(e);self.open_until=time.time()+600;break
@@ -181,7 +182,7 @@ class State:
    except (HTTPError,URLError,TimeoutError,OSError,ValueError,RuntimeError,TypeError,KeyError):pass
    time.sleep(3600)
  def json(self):
-  with self.lock:return {'connected':bool(self.file),'file':self.file,'phase':self.phase,'last_event':self.last_event,'updated':self.updated,'match':self.match,'report':self.report,'battle_review':self.review,'stats_enabled':bool(self.client),'api_status':self.client.status() if self.client else {'offline':True},'cache':self.cache.summary(),'parser_health':self.health,'blacklist':self.relationships.list_blacklist(),'ban_alerts':self.ban_alerts,'build':BUILD}
+  with self.lock:return {'connected':bool(self.file),'file':self.file,'phase':self.phase,'last_event':self.last_event,'updated':self.updated,'match':self.match,'report':self.report,'battle_review':self.review,'stats_enabled':bool(self.client),'api_status':self.client.status() if self.client else {'offline':True},'cache':self.cache.summary(),'parser_health':self.health,'blacklist':self.relationships.list_blacklist(),'ban_alerts':self.ban_alerts,'history_rev':self.relationships.history_rev(),'build':BUILD}
 
 def _urlfile() -> Path:
  return Path(os.environ.get('BA_URL_FILE') or Path(__file__).with_name('ba-webui.url'))

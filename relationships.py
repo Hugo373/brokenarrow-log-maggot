@@ -81,6 +81,10 @@ class RelationshipDB:
         return alerts
     def name_history(self, pid: str) -> list[dict]:
         with self.lock:return [{'name':r[0],'first_seen':r[1],'last_seen':r[2]} for r in self.conn.execute('SELECT name,first_seen,last_seen FROM names WHERE id=? ORDER BY last_seen DESC',(str(pid),))]
+    def history_rev(self) -> str:
+        with self.lock:
+            count,started=self.conn.execute("SELECT COUNT(*), COALESCE(MAX(started),'') FROM matches").fetchone()
+            return f"{count}:{started}"
     def list_history(self, local_id: str|None) -> list[dict]:
         out=[]
         with self.lock:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import re
@@ -13,6 +14,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -169,6 +171,7 @@ class MatchAnalysis:
         self.retry_timer: Optional[threading.Timer] = None
         self.retry_state: dict[str, int] = {}
         self.lock = threading.Lock()
+        self.stats_lock = threading.Lock()
         self.stats_by_fid: dict[str, dict[str, dict]] = {}
 
     def on_roster(self, match: Match) -> None:
@@ -188,18 +191,20 @@ class MatchAnalysis:
     def retry_failed(self, match: Match) -> None:
         with self.lock:
             self.retry_timer = None
-        if not any((match.player_stats.get(p.id) or {}).get("status") == "api_error" for p in match.players if not p.id.startswith("-")):
-            self.retry_state.pop(str(match.fid), None)  # 真人玩家已全部恢复：长尾续约终止
-            return
-        for player in list(match.players):
-            if (match.player_stats.get(player.id) or {}).get("status") == "api_error":
-                match.player_stats.pop(player.id, None)
+        with self.stats_lock:
+            if not any((match.player_stats.get(p.id) or {}).get("status") == "api_error" for p in match.players if not p.id.startswith("-")):
+                self.retry_state.pop(str(match.fid), None)  # 真人玩家已全部恢复：长尾续约终止
+                return
+            for player in list(match.players):
+                if (match.player_stats.get(player.id) or {}).get("status") == "api_error":
+                    match.player_stats.pop(player.id, None)
         self.query_match(match)
 
     def _schedule_retry(self, match: Match) -> None:
         if not self.client or not match.fid or not match.players:
             return
-        failed = any((match.player_stats.get(p.id) or {}).get("status") == "api_error" for p in match.players if not p.id.startswith("-"))
+        with self.stats_lock:
+            failed = any((match.player_stats.get(p.id) or {}).get("status") == "api_error" for p in match.players if not p.id.startswith("-"))
         if failed and getattr(self.client, "last_error", None) == "quota_exceeded":
             failed = False  # 配额闸已关：重试在闸开前必然失败，不做无用功
         if not failed:
@@ -225,33 +230,54 @@ class MatchAnalysis:
         finally:
             self._schedule_retry(match)
 
-    def _query_all(self, match: Match) -> None:
-        for player in list(match.players):
-            if player.id.startswith("-") or player.id in match.player_stats:
-                continue
-            match.player_stats[player.id] = {"status": "queued", "reason": None}
-            self.on_update(match)
-            try:
-                profile = self.client.player_report(player.id)
-                def progress(state: dict, pid=player.id) -> None:
-                    match.player_stats[pid] = {**match.player_stats.get(pid, {}), **state}
-                    self.on_update(match)
-                stats = historical_performance(self.client, player.id, profile, progress)
-                current = next((p for p in ((profile.get("trend") or {}).get("points") or []) if str(p.get("matchId")) == str(match.fid)), None)
-                if current and current.get("ratingBefore") is not None and current.get("ratingAfter") is not None:
-                    stats["elo_delta"] = round(float(current["ratingAfter"]) - float(current["ratingBefore"]), 2)
+    def _notify(self, match: Match) -> None:
+        """Publish a consistent snapshot, since worker threads mutate match.player_stats concurrently."""
+        with self.stats_lock:
+            snap = copy.copy(match)
+            snap.player_stats = {pid: dict(stats) for pid, stats in match.player_stats.items()}
+        self.on_update(snap)
+
+    def _query_player(self, match: Match, player: Player) -> None:
+        def progress(state: dict, pid=player.id) -> None:
+            with self.stats_lock:
+                match.player_stats[pid] = {**match.player_stats.get(pid, {}), **state}
+            self._notify(match)
+        try:
+            profile = self.client.player_report(player.id)
+            stats = historical_performance(self.client, player.id, profile, progress)
+            current = next((p for p in ((profile.get("trend") or {}).get("points") or []) if str(p.get("matchId")) == str(match.fid)), None)
+            if current and current.get("ratingBefore") is not None and current.get("ratingAfter") is not None:
+                stats["elo_delta"] = round(float(current["ratingAfter"]) - float(current["ratingBefore"]), 2)
+            with self.stats_lock:
                 match.player_stats[player.id] = stats
-            except (OSError, ValueError, TypeError, RuntimeError, json.JSONDecodeError) as exc:
+        except (OSError, ValueError, TypeError, RuntimeError, json.JSONDecodeError) as exc:
+            with self.stats_lock:
                 match.player_stats[player.id] = {"status": "api_error", "reason": str(exc), "performance_index": None}
-            self.on_update(match)
+        self._notify(match)
+
+    def _query_all(self, match: Match) -> None:
+        pending: list[Player] = []
+        for player in list(match.players):
+            with self.stats_lock:
+                if player.id.startswith("-") or player.id in match.player_stats:
+                    continue
+                match.player_stats[player.id] = {"status": "queued", "reason": None}
+            pending.append(player)
+            self._notify(match)
+        if pending:
+            # 玩家级并发：350ms 间距仍由客户端全局锁维持，线程只重叠网络往返
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                list(pool.map(lambda player: self._query_player(match, player), pending))
         if match.fid:
-            self.stats_by_fid.setdefault(str(match.fid), {}).update(match.player_stats)
+            with self.stats_lock:
+                self.stats_by_fid.setdefault(str(match.fid), {}).update(match.player_stats)
 
     def finish(self, match: Match) -> str:
         if self.timer:
             self.timer.cancel()
         if match.fid:
-            match.player_stats.update(self.stats_by_fid.get(str(match.fid), {}))
+            with self.stats_lock:
+                match.player_stats.update(self.stats_by_fid.get(str(match.fid), {}))
         self.query_match(match)
         return human_report(match)
 
