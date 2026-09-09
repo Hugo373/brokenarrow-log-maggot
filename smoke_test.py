@@ -205,6 +205,36 @@ def main() -> int:
         check("auto retry recovers players", all(s != "api_error" for s in second), str(second))
     finally:
         ba_tool.MATCH_RETRY_DELAYS = old_delays
+    # 长尾续约：预算耗尽后仍按最后一档节奏无限重试，直到真人玩家全部恢复
+    ba_tool.MATCH_RETRY_DELAYS = (0.2, 0.4, 0.6)
+    class FlakyClient:
+        def __init__(self):
+            self.calls = 0
+        def player_report(self, _pid):
+            self.calls += 1
+            if self.calls <= 6:
+                raise RuntimeError("simulated long outage")
+            return {"trend": {"points": []}, "matchCount": 0}
+    mt2 = Match(fid="t-tail")
+    mt2.players = [Player("31", "C", "Alpha"), Player("32", "D", "Bravo"), Player("33", "E", "Alpha")]
+    ma2 = MatchAnalysis(FlakyClient())
+    try:
+        ma2.query_match(mt2)
+        first = [mt2.player_stats[p.id]["status"] for p in mt2.players]
+        check("long outage marks all api_error", all(s == "api_error" for s in first), str(first))
+        check("long outage exhausts first budget", ma2.client.calls == 3, str(ma2.client.calls))
+        recovered = False
+        deadline = time.time() + 12
+        while time.time() < deadline:
+            if all((mt2.player_stats.get(p.id) or {}).get("status") != "api_error" for p in mt2.players):
+                recovered = True
+                break
+            time.sleep(0.2)
+        second = [mt2.player_stats[p.id]["status"] for p in mt2.players]
+        check("long tail renewal recovers players", recovered and all(s != "api_error" for s in second), str(second))
+        check("long tail renews beyond budget", ma2.client.calls >= 7, str(ma2.client.calls))
+    finally:
+        ba_tool.MATCH_RETRY_DELAYS = old_delays
 
     # 配额耗尽时：有过期缓存则继续服务，无缓存给可读错误而不是无意义重试
     from web_ui import ResilientClient, Cache

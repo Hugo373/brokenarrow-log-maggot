@@ -164,8 +164,8 @@ class State:
     if attempt==2:
      r={'status':'unavailable','match_id':str(fid),'reason':type(e).__name__}
      with self.lock:self.review=r;self.updated=time.time()
-     if self.client and retries<len(MATCH_RETRY_DELAYS):
-      delay=max(MATCH_RETRY_DELAYS[retries],float(getattr(self.client,'open_until',0))-time.time()+5.0,0.0)
+     if self.client and retries<6:
+      delay=max(MATCH_RETRY_DELAYS[min(retries,len(MATCH_RETRY_DELAYS)-1)],float(getattr(self.client,'open_until',0))-time.time()+5.0,0.0)
       timer=threading.Timer(delay,self.fetch_review,args=(fid,retries+1));timer.daemon=True;timer.start()
     else: time.sleep(2 ** attempt)
  def check_bans(self):

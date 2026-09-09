@@ -188,6 +188,9 @@ class MatchAnalysis:
     def retry_failed(self, match: Match) -> None:
         with self.lock:
             self.retry_timer = None
+        if not any((match.player_stats.get(p.id) or {}).get("status") == "api_error" for p in match.players if not p.id.startswith("-")):
+            self.retry_state.pop(str(match.fid), None)  # 真人玩家已全部恢复：长尾续约终止
+            return
         for player in list(match.players):
             if (match.player_stats.get(player.id) or {}).get("status") == "api_error":
                 match.player_stats.pop(player.id, None)
@@ -203,11 +206,10 @@ class MatchAnalysis:
             self.retry_state.pop(str(match.fid), None)
             return
         used = self.retry_state.get(str(match.fid), 0)
-        if used >= len(MATCH_RETRY_DELAYS):
-            return
         self.retry_state[str(match.fid)] = used + 1
         open_until = float(getattr(self.client, "open_until", 0))
-        delay = max(MATCH_RETRY_DELAYS[used], open_until - time.time() + 5.0, 0.0)
+        # 三轮之后以最后一档节奏无限续约；只有 on_roster 替换或真人全部恢复才终止
+        delay = max(MATCH_RETRY_DELAYS[min(used, len(MATCH_RETRY_DELAYS) - 1)], open_until - time.time() + 5.0, 0.0)
         with self.lock:
             if self.retry_timer:
                 self.retry_timer.cancel()
