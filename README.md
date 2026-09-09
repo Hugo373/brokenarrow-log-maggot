@@ -39,7 +39,7 @@ python ba_tool.py watch              # 实时监控最新日志（JSON 事件）
 | `--port N` | 首选端口；占用时自动递增，最多 20 个 |
 | `--no-stats` | 离线模式，零网络请求 |
 | `--no-browser` | 不自动打开浏览器 |
-| `--daily-limit N` | 24 小时滚动 API 配额（默认 300）；命中缓存不计费 |
+| `--daily-limit N` | 24 小时滚动 API 配额（默认 500）；命中缓存不计费 |
 | `--rel-db <文件>` | 关系数据库路径（默认程序目录下 `ba-relationships.sqlite`） |
 | `--cache <文件>` | API 缓存路径（默认 `ba-api-cache.json`） |
 

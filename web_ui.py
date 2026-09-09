@@ -130,7 +130,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
  try:sys.stdout.reconfigure(encoding='utf-8',errors='replace')
  except Exception:pass
- ap=argparse.ArgumentParser();ap.add_argument('--dir',type=Path,default=None);ap.add_argument('--port',type=int,default=8765);ap.add_argument('--no-stats',action='store_true');ap.add_argument('--no-browser',action='store_true');ap.add_argument('--daily-limit',type=int,default=300);ap.add_argument('--rel-db',type=Path,default=None);ap.add_argument('--cache',type=Path,default=Path('ba-api-cache.json'));ap.add_argument('--reset-quota',action='store_true');a=ap.parse_args()
+ ap=argparse.ArgumentParser();ap.add_argument('--dir',type=Path,default=None);ap.add_argument('--port',type=int,default=8765);ap.add_argument('--no-stats',action='store_true');ap.add_argument('--no-browser',action='store_true');ap.add_argument('--daily-limit',type=int,default=500);ap.add_argument('--rel-db',type=Path,default=None);ap.add_argument('--cache',type=Path,default=Path('ba-api-cache.json'));ap.add_argument('--reset-quota',action='store_true');a=ap.parse_args()
  # 接管语义：同指纹已在运行则静默退出；不同指纹则关闭旧实例后接管
  urlfile=_urlfile();old_url=None
  try:old_url=urlfile.read_text(encoding='utf8').split('|')[0].strip()

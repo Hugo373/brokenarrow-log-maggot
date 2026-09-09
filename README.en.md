@@ -39,7 +39,7 @@ python ba_tool.py watch              # live-monitor the newest log (JSON events)
 | `--port N` | preferred port; the next 19 ports are tried when taken |
 | `--no-stats` | offline mode, zero network requests |
 | `--no-browser` | do not auto-open the dashboard |
-| `--daily-limit N` | rolling 24h API budget (default 300); cache hits are free |
+| `--daily-limit N` | rolling 24h API budget (default 500); cache hits are free |
 | `--rel-db <file>` | relationship database path (default `ba-relationships.sqlite` next to the program) |
 | `--cache <file>` | API cache path (default `ba-api-cache.json`) |
 

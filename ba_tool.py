@@ -147,7 +147,7 @@ class Cache:
 
 class Quota:
  """Rolling 24h request budget, persisted so restarts cannot reset it."""
- def __init__(self,path,limit=300):
+ def __init__(self,path,limit=500):
   self.path=Path(path);self.limit=limit;self.requested_limit=limit;self.lock=threading.Lock();self.calls=[]
   try:
    data=json.loads(self.path.read_text(encoding='utf8'))
@@ -688,7 +688,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     watch_cmd.add_argument("--stats-api", default="https://app.batrace.top", help="public stats API base URL")
     watch_cmd.add_argument("--no-stats", action="store_true", help="disable public player lookups")
     watch_cmd.add_argument("--cache", type=Path, default=Path("ba-api-cache.json"), help="API response cache file")
-    watch_cmd.add_argument("--daily-limit", type=int, default=300, help="rolling 24h API request budget")
+    watch_cmd.add_argument("--daily-limit", type=int, default=500, help="rolling 24h API request budget")
     watch_cmd.add_argument("--reset-quota", action="store_true", help="clear the persisted daily quota before starting")
     args = ap.parse_args(argv)
     if args.dir is None:
