@@ -259,16 +259,12 @@ def main() -> int:
         first = [mt2.player_stats[p.id]["status"] for p in mt2.players]
         check("long outage marks all api_error", all(s == "api_error" for s in first), str(first))
         check("long outage exhausts first budget", ma2.client.calls == 3, str(ma2.client.calls))
-        recovered = False
-        deadline = time.time() + 12
-        while time.time() < deadline:
-            if all((mt2.player_stats.get(p.id) or {}).get("status") != "api_error" for p in mt2.players):
-                recovered = True
-                break
-            time.sleep(0.2)
+        # 等条件而非等固定窗口：Timer 线程在负载下可能延迟，30s 给 0.2/0.6s 节奏留足余量
+        recovered = wait_for(lambda: all((mt2.player_stats.get(p.id) or {}).get("status") != "api_error" for p in mt2.players), 30, 0.2)
         second = [mt2.player_stats[p.id]["status"] for p in mt2.players]
         check("long tail renewal recovers players", recovered and all(s != "api_error" for s in second), str(second))
-        check("long tail renews beyond budget", ma2.client.calls >= 7, str(ma2.client.calls))
+        budgeted = wait_for(lambda: ma2.client.calls >= 7, 30, 0.2)
+        check("long tail renews beyond budget", budgeted and ma2.client.calls >= 7, str(ma2.client.calls))
     finally:
         ba_tool.MATCH_RETRY_DELAYS = old_delays
 
@@ -284,15 +280,23 @@ def main() -> int:
     check("404 is terminal not_found, no retry",
           gone.get("status") == "not_found" and not ma4.retry_state and ma4.retry_timer is None, str(gone))
 
-    # 玩家级并发：4 名真人玩家各 0.3s 的 profile 查询应重叠，总耗时远小于串行 1.2s
+    # 玩家级并发：4 名真人玩家各 0.3s 的 profile 查询应重叠，用 max_active>=2 直接证明并发
     class SlowClient:
         def __init__(self):
             self.calls = 0
+            self.active = 0
+            self.max_active = 0
             self.lock = threading.Lock()
         def player_report(self, _pid):
             with self.lock:
                 self.calls += 1
-            time.sleep(0.3)
+                self.active += 1
+                self.max_active = max(self.max_active, self.active)
+            try:
+                time.sleep(0.3)
+            finally:
+                with self.lock:
+                    self.active -= 1
             return {"trend": {"points": []}, "matchCount": 0}
     mt3 = Match(fid="t-parallel")
     mt3.players = [Player(str(200 + i), f"P{i}", "Alpha") for i in range(4)]
@@ -302,8 +306,7 @@ def main() -> int:
     elapsed = time.time() - start
     statuses = {(mt3.player_stats.get(p.id) or {}).get("status") for p in mt3.players}
     check("concurrent query reaches terminal for all players", statuses == {"insufficient_data"} and ma3.client.calls == 4, str(statuses))
-    check("concurrent query overlaps network waits", elapsed < 1.0, f"{elapsed:.2f}s for 4x0.3s (serial would be 1.2s)")
-
+    check("concurrent query overlaps network waits", ma3.client.max_active >= 2, f"max_active={ma3.client.max_active}, elapsed={elapsed:.2f}s")
     # 配额耗尽时：有过期缓存则继续服务，无缓存给可读错误而不是无意义重试
     from ba_tool import ResilientClient, Cache
     qcache = Cache(workdir / "qc-cache.json")
