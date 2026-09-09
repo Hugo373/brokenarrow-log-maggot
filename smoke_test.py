@@ -18,6 +18,8 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
+from scoring import score_match
+
 ROOT = Path(__file__).resolve().parent
 CHECKS: list[tuple[str, bool, str]] = []
 
@@ -50,6 +52,13 @@ def wait_for(predicate, timeout: float, interval: float = 0.5) -> bool:
 
 
 def main() -> int:
+    extreme_team = [dict(loss_value=0.0) for _ in range(9)] + [dict(loss_value=5000.0)]
+    try:
+        extreme = score_match(extreme_team[-1], extreme_team, [], True, 0.5)
+        check("extreme loss_value never raises", isinstance(extreme, dict) and extreme.get("score") is not None)
+    except Exception as exc:
+        check("extreme loss_value never raises", False, repr(exc))
+
     workdir = Path(tempfile.mkdtemp(prefix="ba-smoke-"))
     logs = workdir / "GameLogs"
     logs.mkdir()
