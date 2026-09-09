@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-A read-only local tool for Broken Arrow GameLogs: it detects the live match roster, queries public statistics to compute a per-player performance index (1–10, lower is stronger), and keeps a local database of the players you meet — encounter records, name history, ban alerts. Everything shows up in a browser dashboard: pre-match board, post-match review, diagnostics.
+A read-only local tool for Broken Arrow GameLogs: it detects the live match roster, queries public statistics to compute a per-player performance score (dashboard 0–100, higher is stronger), and keeps a local database of the players you meet — encounter records, name history, ban alerts. Everything shows up in a browser dashboard: pre-match board, post-match review, diagnostics.
 
 ## Quick Start
 
@@ -62,7 +62,8 @@ GET /api/analysis/match?matchid=<matchID>   # per-match mvpRanking/economy/damag
 weight      = 0.92^age × party factor (≥3 games with the same teammate → ×0.6)
 effective n = (Σw)² / Σw²                          # Kish effective sample size
 shrinkage   = (n_eff × mean + 4 × 0.5) / (n_eff + 4)  # Bayesian pull toward 0.5
-index       = 10 − 9 × shrunk mean, with a 90% CI of 1.645 × SE × 9
+index       = 10 − 9 × shrunk mean (1–10 domain, upstream-compatible), 90% CI = 1.645 × SE × 9
+display     = 100 × (10 − index) / 9   # dashboard shows 0–100, higher is stronger
 ```
 
 `ba_tool.maggot_index` keeps the upstream cosine rank formula as a reference implementation.
@@ -93,3 +94,5 @@ python smoke_test.py    # end-to-end smoke: HTTP surface / list edits / log pipe
 ```
 
 Branches: `main` is stable, `dev` for development. CI runs the smoke test on every push/PR; pushing a `v*` tag builds the portable zip and cuts a GitHub Release.
+
+Release: `python smoke_test.py && git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`
