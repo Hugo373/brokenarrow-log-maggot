@@ -41,7 +41,10 @@ def robust_score(value: Optional[float], team_values: Iterable[float], reverse: 
     z = (float(value) - med) / scale
     if reverse:
         z = -z
-    return 1.0 / (1.0 + math.exp(-z / 1.2))
+    try:
+        return 1.0 / (1.0 + math.exp(-z / 1.2))
+    except OverflowError:
+        return 0.0  # z deeply negative: exact logistic limit; exp underflows harmlessly on the other side
 
 
 def weighted_available(parts: list[tuple[Optional[float], float]]) -> Optional[float]:
