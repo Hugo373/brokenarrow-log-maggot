@@ -257,6 +257,18 @@ def main() -> int:
     finally:
         ba_tool.MATCH_RETRY_DELAYS = old_delays
 
+    # HTTP 404（榜上无此玩家）是终态：not_found，不进入无限重试续约
+    class GoneClient:
+        def player_report(self, _pid):
+            raise RuntimeError("HTTP 404")
+    mt4 = Match(fid="t-404")
+    mt4.players = [Player("40401", "Gone", "Alpha")]
+    ma4 = MatchAnalysis(GoneClient())
+    ma4.query_match(mt4)
+    gone = mt4.player_stats["40401"]
+    check("404 is terminal not_found, no retry",
+          gone.get("status") == "not_found" and not ma4.retry_state and ma4.retry_timer is None, str(gone))
+
     # 玩家级并发：4 名真人玩家各 0.3s 的 profile 查询应重叠，总耗时远小于串行 1.2s
     class SlowClient:
         def __init__(self):

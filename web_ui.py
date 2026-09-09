@@ -36,7 +36,7 @@ class State:
   return {'groups':groups,'method':'local database + shared API history'}
  def updated_stats(self,m):
   with self.lock:
-   self.match=self.annotate(m,self.api_party(m));human=[p for p in m.players if not p.id.startswith('-')];terminal={'ready','provisional','insufficient_data','api_error'};done=sum((m.player_stats.get(p.id) or {}).get('status') in terminal for p in human);self.phase=('player scores ready / 玩家评分已就绪' if done==len(human) else f'player scoring {done}/{len(human)} / 玩家评分');self.updated=time.time()
+   self.match=self.annotate(m,self.api_party(m));human=[p for p in m.players if not p.id.startswith('-')];terminal={'ready','provisional','insufficient_data','api_error','not_found'};done=sum((m.player_stats.get(p.id) or {}).get('status') in terminal for p in human);self.phase=('player scores ready / 玩家评分已就绪' if done==len(human) else f'player scoring {done}/{len(human)} / 玩家评分');self.updated=time.time()
  def event(self,k,d):
   if k=='parser_health':
    with self.lock:self.health=d.get('health',{});self.updated=time.time()

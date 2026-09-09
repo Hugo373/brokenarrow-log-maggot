@@ -353,8 +353,11 @@ class MatchAnalysis:
             with self.stats_lock:
                 match.player_stats[player.id] = stats
         except (OSError, ValueError, TypeError, RuntimeError, json.JSONDecodeError) as exc:
+            reason = str(exc)
             with self.stats_lock:
-                match.player_stats[player.id] = {"status": "api_error", "reason": str(exc), "performance_index": None}
+                # HTTP 404: player absent from the leaderboard — terminal, no retry
+                status = "not_found" if reason.startswith("HTTP 404") else "api_error"
+                match.player_stats[player.id] = {"status": status, "reason": reason, "performance_index": None}
         self._notify(match)
 
     def _query_all(self, match: Match) -> None:
