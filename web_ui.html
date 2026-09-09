@@ -1,61 +1,174 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Broken Arrow 综合分析</title>
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem('ba-theme')||'dark'}catch(e){document.documentElement.dataset.theme='dark'}</script>
   <style>
-    :root { color-scheme: dark; font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; --blue:#579dff; --border:#38414a; --muted:#9fadbc; --page:#101214; --surface:#1d2125; --subtle:#22272b; --text:#b6c2cf; --bar-low:#b85f58; --bar-mid:#b3893c; --bar-high:#398c68; --bar-glow:#398c6866; background:var(--page); }
+    :root {
+      color-scheme: dark;
+      font: 14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif;
+      --blue:#579dff; --border:#38414a; --muted:#9fadbc; --page:#101214; --surface:#1d2125; --subtle:#22272b; --text:#b6c2cf;
+      --bar-low:#b85f58; --bar-mid:#b3893c; --bar-high:#398c68; --bar-glow:#398c6866;
+      --ok-bg:#deebff; --ok-fg:#0747a6; --warn-bg:#fffae6; --warn-fg:#7f5f01; --bad-bg:#ffebe6; --bad-fg:#bf2600;
+      --good:#006644; --mid:#7f5f01; --danger:#bf2600; --pending:#6b778c;
+      --alert-bg:#5e1f16; --alert-fg:#ffbdad;
+      --shadow:0 1px 2px #091e4226;
+      background:var(--page);
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --blue:#0052cc; --border:#d3d9e0; --muted:#5e6c84; --page:#f4f5f7; --surface:#ffffff; --subtle:#ebecf0; --text:#172b4d;
+      --bar-low:#e87568; --bar-mid:#dca64b; --bar-high:#43b77a; --bar-glow:#43b77a55;
+      --alert-bg:#ffebe6; --alert-fg:#bf2600;
+      --shadow:0 1px 2px #091e4214;
+    }
     html { min-height:100%; background:var(--page); }
-    * { box-sizing:border-box; } body { min-height:100vh; max-width:1320px; margin:auto; padding:0 24px 40px; background:var(--page); color:var(--text); }
-    header { display:flex; justify-content:space-between; align-items:center; min-height:72px; border-bottom:1px solid var(--border); }
-    header h1 { margin:0; font-size:20px; font-weight:600; color:var(--text); } header .muted { margin-top:4px; }
+    * { box-sizing:border-box; }
+    body { min-height:100vh; max-width:1320px; margin:auto; padding:0 24px 40px; background:var(--page); color:var(--text); }
+    /* 吸顶 header */
+    header.top { position:sticky; top:0; z-index:20; background:var(--page); display:flex; justify-content:space-between; align-items:center; gap:10px 16px; flex-wrap:wrap; min-height:72px; padding:10px 0; border-bottom:1px solid var(--border); }
+    header.top h1 { margin:0; font-size:20px; font-weight:600; color:var(--text); } header.top .muted { margin-top:2px; }
+    .top-badges { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
     h1,h2,h3 { margin:0 0 12px; } h2 { font-size:16px; color:var(--text); } h3 { margin-top:20px; color:var(--text); font-size:14px; text-transform:uppercase; letter-spacing:.04em; }
-    .muted { color:var(--muted); } .status,.badge { display:inline-block; padding:4px 9px; border-radius:3px; background:var(--subtle); color:var(--text); font-size:12px; font-weight:600; }
-    .status.ok { background:#deebff; color:#0747a6; } .status.warn { background:#fffae6; color:#7f5f01; } .status.bad { background:#ffebe6; color:#bf2600; } :root.dark .status.ok { background:#1c3b60; color:#b6d7ff; } :root.dark .status.warn { background:#533f04; color:#ffe380; } :root.dark .status.bad { background:#5e1f16; color:#ffbdad; }
-    .tabs { display:flex; gap:4px; margin:20px 0 16px; border-bottom:1px solid var(--border); overflow:auto; }
-    .tab { border:0; border-bottom:2px solid transparent; border-radius:3px 3px 0 0; padding:10px 14px; color:#42526e; background:transparent; cursor:pointer; white-space:nowrap; font-weight:600; } .tab:hover { background:var(--subtle); color:var(--text); } .tab.active { background:#deebff; border-bottom-color:var(--blue); color:#0747a6; } :root.dark .tab { color:#b6c2cf; } :root.dark .tab.active { background:#1c3b60; color:#b6d7ff; }
-    .panel { display:none; } .panel.active { display:block; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px; }
-    .card { background:var(--surface); border:1px solid var(--border); border-radius:3px; padding:20px; margin-bottom:16px; box-shadow:0 1px 2px #091e4226; }
+    .muted { color:var(--muted); }
+    .status,.badge { display:inline-block; padding:4px 9px; border-radius:3px; background:var(--subtle); color:var(--text); font-size:12px; font-weight:600; }
+    .status.ok { background:var(--ok-bg); color:var(--ok-fg); } .status.warn { background:var(--warn-bg); color:var(--warn-fg); } .status.bad { background:var(--bad-bg); color:var(--bad-fg); }
+    .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; background:var(--muted); }
+    .dot.ok { background:#36b37e; box-shadow:0 0 6px #36b37e80; } .dot.warn { background:#e2b13c; box-shadow:0 0 6px #e2b13c80; } .dot.bad { background:#ff8f73; box-shadow:0 0 6px #ff8f7380; } .dot.off { background:var(--pending); box-shadow:none; }
+    .circuit { display:inline-flex; align-items:center; font-size:12px; color:var(--muted); }
+    button { font:inherit; }
+    .icon-btn,.chip,.btn { border:1px solid var(--border); background:var(--subtle); color:var(--text); border-radius:3px; padding:5px 10px; cursor:pointer; font-size:12px; font-weight:600; }
+    .icon-btn:hover,.chip:hover,.btn:hover { border-color:var(--muted); }
+    .chip.active { background:var(--ok-bg); color:var(--ok-fg); border-color:transparent; }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:3px; padding:20px; margin:16px 0; box-shadow:var(--shadow); }
+    .section-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
+    .section-head h2 { margin:0; }
+    .flip { display:flex; gap:6px; }
+    .mview { display:none; } .mview.active { display:block; }
+    /* 警报轨 */
+    .ban-alert { background:var(--alert-bg); color:var(--alert-fg); border-radius:3px; padding:9px 12px; margin:12px 0 0; font-size:13px; }
+    .ban-alert a { color:inherit; float:right; margin-left:8px; }
     .player { display:grid; grid-template-columns:minmax(160px,1fr) 90px 150px; gap:12px; align-items:center; border-bottom:1px solid var(--border); padding:13px 0; }
-    .index { font-size:20px; font-weight:700; text-align:right; } .index.good { color:#006644; } .index.mid { color:#7f5f01; } .index.bad { color:#bf2600; } .index.pending { color:#6b778c; font-size:13px; }
-    .metrics { font-size:12px; color:var(--muted); text-align:right; } .bar { height:9px; background:var(--subtle); border-radius:4px; overflow:hidden; } .bar i { display:block; height:100%; background:linear-gradient(90deg,var(--bar-low) 0%,var(--bar-mid) 48%,var(--bar-high) 100%); box-shadow:0 0 7px var(--bar-glow); }
-    .component { margin:9px 0; } .component span { display:flex; justify-content:space-between; } .component em { font-style:normal; } .component b { font-size:12px; } .bl-quick { border:0; cursor:pointer; background:#deebff; color:#0747a6; padding:3px 7px; border-radius:3px; font-size:11px; font-weight:700; margin-left:6px; } .bl-quick:hover { filter:brightness(.92); } .team-cols { display:grid; grid-template-columns:1fr 1fr; gap:20px; } @media(max-width:820px){ .team-cols { grid-template-columns:1fr; } } .badge .bl-del { margin-left:6px; cursor:pointer; color:inherit; opacity:.6; text-decoration:none; } .badge .bl-del:hover { opacity:1; } .badge.bl-bad { background:#5e1f16; color:#ffbdad; font-weight:700; } .plink { cursor:pointer; } .plink:hover { color:var(--blue); } .player-detail { grid-column:1/-1; padding:6px 0 10px 4px; border-bottom:1px solid var(--border); font-size:12px; color:var(--muted); } .ban-alert { background:#5e1f16; color:#ffbdad; border-radius:3px; padding:9px 12px; margin-bottom:12px; font-size:13px; } .ban-alert a { color:inherit; float:right; margin-left:8px; } .signal { font-size:11px; margin-left:6px; } .signal.good { color:#006644; } .signal.mid { color:#7f5f01; } .signal.bad { color:#bf2600; } .self-badge { background:#deebff; color:#0747a6; padding:3px 7px; border-radius:3px; font-size:11px; font-weight:700; } .elo { font-weight:700; color:var(--text); font-size:15px; }
-    @media(max-width:650px){body{padding:0 14px 28px}.player{grid-template-columns:1fr 70px}.metrics{grid-column:1/-1;text-align:left}header{min-height:64px}}
+    .hist-row { cursor:pointer; padding:8px 0; font-size:13px; }
+    .hist-row:hover { background:var(--subtle); }
+    .index { font-size:20px; font-weight:700; text-align:right; } .index.good { color:var(--good); } .index.mid { color:var(--mid); } .index.bad { color:var(--danger); } .index.pending { color:var(--pending); font-size:13px; }
+    .metrics { font-size:12px; color:var(--muted); text-align:right; }
+    .bar { height:9px; background:var(--subtle); border-radius:4px; overflow:hidden; } .bar i { display:block; height:100%; background:linear-gradient(90deg,var(--bar-low) 0%,var(--bar-mid) 48%,var(--bar-high) 100%); box-shadow:0 0 7px var(--bar-glow); }
+    .component { margin:9px 0; } .component span { display:flex; justify-content:space-between; } .component em { font-style:normal; } .component b { font-size:12px; }
+    .bl-quick { border:0; cursor:pointer; background:var(--ok-bg); color:var(--ok-fg); padding:3px 7px; border-radius:3px; font-size:11px; font-weight:700; margin-left:6px; } .bl-quick:hover { filter:brightness(.92); }
+    .team-cols { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+    .badge .bl-del { margin-left:6px; cursor:pointer; color:inherit; opacity:.6; text-decoration:none; } .badge .bl-del:hover { opacity:1; }
+    .badge.bl-bad { background:var(--alert-bg); color:var(--alert-fg); font-weight:700; }
+    .plink { cursor:pointer; } .plink:hover { color:var(--blue); }
+    .player-detail { grid-column:1/-1; padding:6px 0 10px 4px; border-bottom:1px solid var(--border); font-size:12px; color:var(--muted); }
+    .player-detail b { color:var(--text); }
+    .signal { font-size:11px; margin-left:6px; } .signal.good { color:var(--good); } .signal.mid { color:var(--mid); } .signal.bad { color:var(--danger); }
+    .self-badge { background:var(--ok-bg); color:var(--ok-fg); padding:3px 7px; border-radius:3px; font-size:11px; font-weight:700; }
+    .elo { font-weight:700; color:var(--text); font-size:15px; }
+    .reason { font-size:12px; color:var(--muted); }
+    .confidence { margin-top:6px; font-size:12px; color:var(--muted); }
+    /* 诊断区 */
+    #diagnostics h2.diag-title { margin:20px 0 10px; }
+    details { background:var(--surface); border:1px solid var(--border); border-radius:3px; margin-bottom:10px; box-shadow:var(--shadow); }
+    details summary { cursor:pointer; padding:12px 20px; font-weight:600; color:var(--text); list-style:none; }
+    details summary::-webkit-details-marker { display:none; }
+    details summary::before { content:'▸'; display:inline-block; margin-right:8px; color:var(--muted); transition:transform .12s; }
+    details[open] summary::before { transform:rotate(90deg); }
+    details .diag-body, details p, details .id-form, details #blacklist-list { margin-left:20px; margin-right:20px; }
+    pre.report { margin:10px 20px 18px; padding:10px 12px; background:var(--page); border:1px solid var(--border); border-radius:3px; overflow:auto; font-size:12px; color:var(--muted); max-height:320px; }
+    .id-form { display:flex; gap:8px; margin-top:10px; }
+    .id-input { flex:1; max-width:260px; padding:6px 9px; border:1px solid var(--border); border-radius:3px; background:var(--page); color:var(--text); font:inherit; }
+    #blacklist-list { margin-top:10px; margin-bottom:16px; }
+    #workflow-state, #api-state { margin-top:12px; font-size:13px; line-height:1.7; }
+    @media(max-width:650px){
+      body{padding:0 14px 28px}
+      header.top{min-height:64px;padding:8px 0}
+      .player{grid-template-columns:1fr 70px}
+      .metrics{grid-column:1/-1;text-align:left}
+      .team-cols{grid-template-columns:1fr}
+      .hist-row{grid-template-columns:1fr 70px}
+    }
   </style>
 </head>
 <body>
-<header>
-  <div><div class="muted">Broken Arrow · Analytics</div><h1>综合分析工作台</h1></div>
-  <div><span id="phase-badge" class="status warn">启动中</span><span id="connection" class="status warn">连接中</span></div>
+<header class="top" id="top">
+  <div class="brand">
+    <div class="muted">Broken Arrow · Analytics</div>
+    <h1>综合分析工作台</h1>
+  </div>
+  <div class="top-badges">
+    <span id="phase-badge" class="status warn">启动中</span>
+    <span id="quota-badge" class="badge" title="今日 API 配额">--/--</span>
+    <span id="circuit-meter" class="circuit" title="API 熔断状态"><i id="circuit-dot" class="dot off"></i>熔断</span>
+    <span id="connection" class="status warn">连接中</span>
+    <button id="theme-toggle" class="icon-btn" data-theme-toggle title="切换明暗主题">主题</button>
+  </div>
 </header>
-<nav class="tabs">
-  <button class="tab active" data-tab="workflow">工作情况</button>
-  <button class="tab" data-tab="prematch">局前速览</button>
-  <button class="tab" data-tab="postmatch">局后复盘</button>
-  <button class="tab" data-tab="history">历史</button>
-  <button class="tab" data-tab="diagnostics">诊断</button>
-</nav>
-<section id="workflow" class="panel active"><div id="ban-alerts"></div><div class="grid"><div class="card"><h2>当前阶段</h2><div id="workflow-state"></div></div><div class="card"><h2>数据服务</h2><div id="api-state"></div></div></div><div class="card"><h2>当前名单与评分进度</h2><div id="roster"></div></div></section>
-<section id="prematch" class="panel"><div class="card"><h2>局前速览</h2><p class="muted">所有表现分统一为 0–100；分数越高越强。条越长表示数值越高，颜色从低到高由红→黄→绿；标签用于标记历史关系和可能的固定队。</p><div id="pre-list"></div></div></section>
-<section id="postmatch" class="panel"><div class="card"><h2>局后复盘</h2><p class="muted">本局表现与局前历史表现均为 0–100；越高代表表现越突出。差值 = 本局 − 局前。</p><div id="review"></div></div><div class="card"><h2>表现图表</h2><div id="charts"></div></div></section>
-<section id="history" class="panel"><div class="card"><h2>对局历史</h2><p class="muted">本地记录的全部对局；点击行可展开玩家名单，标注你所在的一队。</p><div id="history-list"></div></div></section>
-<section id="diagnostics" class="panel"><div class="grid"><div class="card"><h2>解析器</h2><pre id="parser-health" class="report"></pre></div><div class="card"><h2>接口</h2><pre id="api-health" class="report"></pre></div><div class="card"><h2>熟人名单</h2><p class="muted">填写玩家名后方括号内的数字 ID，例如 Hugo373 [71187] 填 71187。</p><div class="id-form"><input id="blacklist-id" class="id-input" placeholder="例如 71187"><button id="blacklist-add" class="theme-toggle">加入</button></div><div id="blacklist-list"></div></div></div></section>
+<div id="alerts" class="alert-rail">
+  <div id="fatal-alerts"></div>
+  <div id="ban-alerts"></div>
+</div>
+<main>
+<section id="match" class="card">
+  <div class="section-head">
+    <h2>本局</h2>
+    <div class="flip">
+      <button class="chip active" data-match-view="prematch">局前速览</button>
+      <button class="chip" data-match-view="postmatch">局后复盘</button>
+    </div>
+  </div>
+  <div id="view-prematch" class="mview active">
+    <p class="muted">所有表现分统一为 0–100；分数越高越强。条越长表示数值越高，颜色从低到高由红→黄→绿；标签用于标记历史关系和可能的固定队。</p>
+    <div id="pre-list"></div>
+  </div>
+  <div id="view-postmatch" class="mview">
+    <p class="muted">本局表现与局前历史表现均为 0–100；越高代表表现越突出。差值 = 本局 − 局前。</p>
+    <div id="review"></div>
+    <h3>表现图表</h3>
+    <div id="charts"></div>
+  </div>
+</section>
+<section id="history" class="card">
+  <h2>对局历史</h2>
+  <p class="muted">本地记录的全部对局；点击行可展开玩家名单，标注你所在的一队。</p>
+  <div id="history-list"></div>
+</section>
+<section id="diagnostics">
+  <h2 class="diag-title">诊断</h2>
+  <details id="diag-parser">
+    <summary>解析器</summary>
+    <div id="workflow-state" class="diag-body"></div>
+    <pre id="parser-health" class="report"></pre>
+  </details>
+  <details id="diag-api">
+    <summary>接口</summary>
+    <div id="api-state" class="diag-body"></div>
+    <pre id="api-health" class="report"></pre>
+  </details>
+  <details id="friends">
+    <summary>熟人名单管理</summary>
+    <p class="muted">填写玩家名后方括号内的数字 ID，例如 Hugo373 [71187] 填 71187。</p>
+    <div class="id-form"><input id="blacklist-id" class="id-input" placeholder="例如 71187"><button id="blacklist-add" class="btn">加入</button></div>
+    <div id="blacklist-list"></div>
+  </details>
+</section>
+</main>
 <script>
 const $=id=>document.getElementById(id), esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let active='workflow', lastEvent='';
-function selectTab(name){active=name;document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));document.querySelectorAll('.panel').forEach(x=>x.classList.toggle('active',x.id===name));}
-document.querySelectorAll('.tab').forEach(x=>x.addEventListener('click',()=>selectTab(x.dataset.tab)));
+let lastEvent='';
+/* 本局容器：局前/局后两形态在同一容器内翻动 */
+function setMatchView(v){$('view-prematch').classList.toggle('active',v==='prematch');$('view-postmatch').classList.toggle('active',v==='postmatch');document.querySelectorAll('[data-match-view]').forEach(b=>b.classList.toggle('active',b.dataset.matchView===v));}
 function statusText(s,reason){const r=String(reason||'');if(s==='api_error'&&/配额|quota/i.test(r))return '今日配额已用完（缓存数据继续展示）';if(s==='api_error'&&r.includes('circuit_open'))return '网络熔断冷却中';return ({queued:'排队中',fetching_matches:'获取历史对局',ready:'已完成',provisional:'暂定评分',insufficient_data:'有效数据不足',api_error:'接口失败'})[s]||s||'等待';}
 function relativeTone(value,peers){const nums=peers.filter(v=>v!=null).map(Number).sort((a,b)=>a-b);if(value==null||!nums.length)return 'mid';const rank=nums.length===1?.5:(nums.filter(v=>v<=Number(value)).length-1)/(nums.length-1);return rank>=.67?'good':rank<=.33?'bad':'mid';}
 function perfFromIndex(v){return v==null?null:Math.max(0,Math.min(100,(10-Number(v))/9*100));}
-function barGradient(value){const dark=document.documentElement.classList.contains('dark'),stops=dark?[[184,95,88],[179,137,60],[57,140,104]]:[[232,117,104],[220,166,75],[67,183,122]],t=Math.max(0,Math.min(1,Number(value)/100)),pos=t*2,lo=stops[Math.floor(pos)],hi=stops[Math.min(2,Math.ceil(pos))],f=pos-Math.floor(pos),end=lo.map((x,i)=>Math.round(x+(hi[i]-x)*f)),start=end.map(x=>Math.round(x*(dark?.72:.82)));return `linear-gradient(90deg,rgb(${start.join(',')}),rgb(${end.join(',')}))`;}
+function barGradient(value){const dark=document.documentElement.dataset.theme!=='light',stops=dark?[[184,95,88],[179,137,60],[57,140,104]]:[[232,117,104],[220,166,75],[67,183,122]],t=Math.max(0,Math.min(1,Number(value)/100)),pos=t*2,lo=stops[Math.floor(pos)],hi=stops[Math.min(2,Math.ceil(pos))],f=pos-Math.floor(pos),end=lo.map((x,i)=>Math.round(x+(hi[i]-x)*f)),start=end.map(x=>Math.round(x*(dark?.72:.82)));return `linear-gradient(90deg,rgb(${start.join(',')}),rgb(${end.join(',')}))`;}
 function components(stats,peerStats=[]){const labels={mvp:'综合',combat:'战斗',efficiency:'效率',teamwork:'团队',context_result:'赛果'};return Object.entries(stats.components||{}).map(([k,v])=>{if(v==null)return '';const n=Math.max(0,Math.min(100,Number(v))),tone=relativeTone(n,peerStats.map(x=>x.components?.[k])),signal=tone==='good'?'队内优':tone==='bad'?'队内弱':'队内中';return `<div class="component"><span><em>${labels[k]||k}<small class="signal ${tone}">${signal}</small></em><b>${n.toFixed(0)}/100</b></span><div class="bar"><i style="width:${n}%;background:${barGradient(n)}"></i></div></div>`}).join('');}
 function strengthSummary(stats){const labels={mvp:'综合',combat:'战斗',efficiency:'效率',teamwork:'团队',context_result:'赛果'};const values=Object.entries(stats.components||{}).filter(([,v])=>v!=null).sort((a,b)=>b[1]-a[1]);if(!values.length)return '';return `<div class="confidence">强项：${labels[values[0][0]]}　<span class="reason">短板：${labels[values.at(-1)[0]]}</span></div>`;}
 function wl(w,l){return (w||l)?` · ${w||0}胜${l||0}负`:'';}
 function relationTag(p){const r=p.relationship||{};if(r.is_self)return '<span class="self-badge">你</span>';if(r.banned)return '<span class="badge bl-bad">已封禁</span>';if(r.blacklisted||window.__blSet?.has(String(p.id)))return '<span class="badge">开黑</span>';if(r.prior_teammate_matches)return `<span class="badge">队友 ${r.prior_teammate_matches} 局${wl(r.teammate_wins,r.teammate_losses)}</span>`;if(r.prior_opponent_matches)return `<span class="badge">对手 ${r.prior_opponent_matches} 局${wl(r.opponent_wins,r.opponent_losses)}</span>`;return '';}
-function invHtml(d){const chip=t=>`<span class="badge">${esc(t)}</span>`;const names=(d.names||[]).map(n=>chip(n.name)).join(' ');const rec=v=>v&&v.matches?`${v.matches} 局 · ${v.wins||0}胜${v.losses||0}负`:'无同局记录';const seen=d.first_seen?`相遇：${esc(d.first_seen)} → ${esc(d.last_seen)}`:'';const recent=(d.recent||[]).map(m=>{const r=m.won==null?'':( (m.same_team?m.won:!m.won)?' · 胜':' · 负');return `<div>· ${esc(m.started||'')} ${esc(m.map||'')} FID ${esc(m.fid)}（${m.same_team?'同队':'敌对'}${r}）</div>`}).join('');const parts=[];if(d.banned)parts.push('<span class="badge bl-bad">已被封禁</span>');if(d.blacklisted)parts.push('<span class="badge">开黑好友</span>');parts.push(`<b>曾用名</b>：${names||'无'}`);parts.push(`<b>与我同队</b>：${rec(d.teammate)}　<b>敌对</b>：${rec(d.opponent)}`);if(seen)parts.push(seen);return parts.join('<br>')+(recent?`<div style="margin-top:6px"><b>最近同局</b></div>${recent}`:'');}
+function invHtml(d){const chip=t=>`<span class="badge">${esc(t)}</span>`;const names=(d.names||[]).map(n=>chip(n.name)).join(' ');const rec=v=>v&&v.matches?`${v.matches} 局 · ${v.wins||0}胜${v.losses||0}负`:'无同局记录';const seen=d.first_seen?`相遇：${esc(d.first_seen)} → ${esc(d.last_seen)}`:'';const recent=(d.recent||[]).map(m=>{const r=m.won==null?'':((m.same_team?m.won:!m.won)?' · 胜':' · 负');return `<div>· ${esc(m.started||'')} ${esc(m.map||'')} FID ${esc(m.fid)}（${m.same_team?'同队':'敌对'}${r}）</div>`}).join('');const parts=[];if(d.banned)parts.push('<span class="badge bl-bad">已被封禁</span>');if(d.blacklisted)parts.push('<span class="badge">开黑好友</span>');parts.push(`<b>曾用名</b>：${names||'无'}`);parts.push(`<b>与我同队</b>：${rec(d.teammate)}　<b>敌对</b>：${rec(d.opponent)}`);if(seen)parts.push(seen);return parts.join('<br>')+(recent?`<div style="margin-top:6px"><b>最近同局</b></div>${recent}`:'');}
 async function invToggle(pid,el){const row=el.closest('.player'),next=row.nextElementSibling;if(next&&next.classList.contains('player-detail')){next.remove();return}const box=document.createElement('div');box.className='player-detail';box.textContent='调查中…';row.after(box);try{const d=await fetch('/api/investigate?id='+encodeURIComponent(pid),{cache:'no-store'}).then(r=>r.json());box.innerHTML=invHtml(d);}catch(e){box.textContent='查询失败';}}
 function partyTag(m){const n=m?.party_signal?.groups?.length||0;return n?`<div class="confidence">可能固定队：${n} 组</div>`:'';}
 function quickFriend(p){const id=String(p.id);return (id.startsWith('-')||p.relationship?.is_self||window.__blSet?.has(id))?'':`<button class="bl-quick" title="标记开黑好友" data-bl-add="${esc(id)}">+熟人</button>`;}
@@ -64,17 +177,42 @@ function teamLabel(t){const m={'0':'Alpha','1':'Bravo'};return m[String(t)]||Str
 function reviewHtml(r,match){if(!r)return '<span class="muted">等待对局结束</span>';if(r.status!=='ready')return `<span class="muted">${esc(statusText(r.status))}</span>`;let out=`<div class="team-summary"><span class="badge">FID ${esc(r.match_id)}</span><span class="badge">平衡 ${esc(r.balance?.label||'未知')}</span></div>`;const blocks=[];for(const [team,v] of Object.entries(r.teams||{})){let b=`<h3>${teamLabel(team)} · 综合 ${((v.average_score??50)).toFixed(0)}/100 · 完整度 ${Math.round((v.coverage||0)*100)}%</h3>`;b+=(v.players||[]).map(p=>{const before=(match?.player_stats||{})[p.id]||{};const current=p.score==null?null:p.score*100;const previous=perfFromIndex(before.performance_index);const delta=current==null||previous==null?null:current-previous;const peer=v.players||[];const tone=relativeTone(current,peer.map(x=>x.score==null?null:x.score*100));const eloDelta=before.elo_delta??p.elo_delta??p.eloDelta;const elo=eloDelta==null?'未收录':(Number(eloDelta)>=0?'+':'')+Number(eloDelta).toFixed(1);return `<div class="player"><div><b>${esc(p.name)}</b><div class="muted">击杀 ${p.kill_value??'?'} · 损失 ${p.loss_value??'?'} · 伤害 ${p.damage_dealt??'?'}</div></div><div class="index ${current==null?'pending':tone}">${current==null?'?':current.toFixed(0)+'/100'}</div><div class="metrics"><span class="elo">ELO 变化 ${elo}</span><br>局前 ${previous==null?'?':previous.toFixed(0)} · 变化 ${delta==null?'?':(delta>=0?'+':'')+delta.toFixed(0)}<br>MVP ${p.mvp_score??'?'}</div></div>`}).join('');blocks.push(b);}out+=blocks.length===2?`<div class="team-cols">${blocks.map(b=>`<div>${b}</div>`).join('')}</div>`:blocks.join('');return out;}
 function chartHtml(r){if(!r||r.status!=='ready')return '<span class="muted">暂无图表</span>';let out='';for(const [team,v] of Object.entries(r.teams||{})){const n=v.average_score??50;out+=`<h3>${teamLabel(team)}</h3><div class="component"><span><em>队伍表现</em><b>${n.toFixed(0)}/100</b></span><div class="bar"><i style="width:${n}%;background:${barGradient(n)}"></i></div></div>`;for(const p of v.players||[]){const x=p.score==null?50:p.score*100;out+=`<div class="component"><span><em>${esc(p.name)}</em><b>${x.toFixed(0)}/100</b></span><div class="bar"><i style="width:${x}%;background:${barGradient(x)}"></i></div></div>`}}return out;}
 let __histRev=null;
-async function refreshHistory(rev){if(rev===__histRev)return;try{const d=await fetch('/api/history',{cache:'no-store'}).then(r=>r.json());const tone=w=>w===true?'good':w===false?'bad':'pending';const wl=m=>m.won==null?'<span class="badge">—</span>':m.won?'<span class="status ok">胜</span>':'<span class="status bad">负</span>';const rows=(d||[]).map(m=>{const names=(m.players||[]).map(p=>`${esc(p.name)}<span class="muted">[${esc(p.id)}]</span>`).join('、');const detail=(m.players||[]).map(p=>`<div>· ${esc(p.team||'?')} 队 — ${esc(p.name)} [${esc(p.id)}]</div>`).join('');return `<div class="player" style="cursor:pointer" data-hist-toggle="${esc(m.fid)}"><div><b>${esc(m.map||'未知地图')}</b> <span class="muted">FID ${esc(m.fid)}</span><div class="muted">${names||'无名单'}</div></div><div class="metrics" style="font-size:12px;color:var(--muted)"><span class="index ${tone(m.won)}" style="font-size:12px">${esc(m.started||'—')}</span></div><div class="metrics">${wl(m)} ${m.player_count} 人${m.with_local?'<br>你参与':''}</div></div><div class="player-detail" style="display:none" id="hd-${esc(m.fid)}">${detail}</div>`}).join('');setHtml($('history-list'),rows||'<span class="muted">暂无历史对局</span>');__histRev=rev;}catch(e){}}
+async function refreshHistory(rev){if(rev===__histRev)return;try{const d=await fetch('/api/history',{cache:'no-store'}).then(r=>r.json());const tone=w=>w===true?'good':w===false?'bad':'pending';const wl=m=>m.won==null?'<span class="badge">—</span>':m.won?'<span class="status ok">胜</span>':'<span class="status bad">负</span>';const rows=(d||[]).map(m=>{const names=(m.players||[]).map(p=>`${esc(p.name)}<span class="muted">[${esc(p.id)}]</span>`).join('、');const detail=(m.players||[]).map(p=>`<div>· ${esc(p.team||'?')} 队 — ${esc(p.name)} [${esc(p.id)}]</div>`).join('');return `<div class="player hist-row" data-hist-toggle="${esc(m.fid)}"><div><b>${esc(m.map||'未知地图')}</b> <span class="muted">FID ${esc(m.fid)}</span><div class="muted">${names||'无名单'}</div></div><div class="metrics" style="font-size:12px;color:var(--muted)"><span class="index ${tone(m.won)}" style="font-size:12px">${esc(m.started||'—')}</span></div><div class="metrics">${wl(m)} ${m.player_count} 人${m.with_local?'<br>你参与':''}</div></div><div class="player-detail" style="display:none" id="hd-${esc(m.fid)}">${detail}</div>`}).join('');setHtml($('history-list'),rows||'<span class="muted">暂无历史对局</span>');__histRev=rev;}catch(e){}}
 function historyToggle(fid){const el=document.getElementById('hd-'+fid);if(el)el.style.display=el.style.display==='none'?'block':'none';}
 const __htmlCache={};
 function setHtml(el,html){if(__htmlCache[el.id]!==html){__htmlCache[el.id]=html;el.innerHTML=html;}}
-async function refresh(){try{const s=await fetch('/api/state',{cache:'no-store'}).then(r=>r.json());$('connection').textContent=s.connected?'日志已连接':'等待日志';$('connection').className='status '+(s.connected?'ok':'warn');$('workflow-state').innerHTML=`<b>${esc(s.phase)}</b><br>${esc(s.file||'尚无文件')}<br>事件：${esc(s.last_event||'-')}<br>更新时间：${new Date(s.updated*1000).toLocaleTimeString()}`;$('api-state').innerHTML=`缓存 ${s.cache.entries} 条 · 命中 ${s.cache.hits} · 失败 ${s.cache.failures}<br>熔断器：${s.api_status?.circuit_open?'已开启':'正常'}<br>配额：${s.api_status?.quota?`今日 ${s.api_status.quota.used}/${s.api_status.quota.limit}（剩 ${s.api_status.quota.remaining}）`:'未启用'}<br>${esc(s.api_status?.last_error||'无最近错误')}`;setHtml($('roster'),playerList(s.match));setHtml($('pre-list'),playerList(s.match,true));setHtml($('review'),reviewHtml(s.battle_review,s.match));setHtml($('charts'),chartHtml(s.battle_review));refreshHistory(s.history_rev);$('parser-health').textContent=JSON.stringify(s.parser_health||{},null,2);$('api-health').textContent=JSON.stringify(s.api_status||{},null,2);setHtml($('ban-alerts'),(s.ban_alerts||[]).map(x=>`<div class="ban-alert">⚠ 你遇到过的新晋封禁：<b>${esc(x.name)}</b> [${esc(x.id)}]<a href="#" title="关闭" data-dismiss-alert>×</a></div>`).join(''));const m=String(s.phase||'').match(/scoring (\d+)\/(\d+)/);let pb='启动中',pc='warn';const p=String(s.phase||'');if(/对局开始/.test(p))pb='对局中';else if(/获取玩家评分/.test(p))pb='评分加载';else if(/玩家评分已就绪/.test(p)){pb='评分就绪';pc='ok';}else if(m)pb=`评分 ${m[1]}/${m[2]}`;else if(/对局结束/.test(p)){pb='已结束';pc='ok';}else if(/GameLogs not found|未找到日志目录/.test(p)){pb='找不到日志';pc='bad';}else if(!/启动中/.test(p))pb=p.includes('/')?p.split('/').pop().trim():p;$('phase-badge').textContent=pb;$('phase-badge').className='status '+pc;if(s.last_event!==lastEvent){if(s.last_event==='roster'||s.phase?.includes('scores ready'))selectTab('prematch');if(s.last_event==='match_end')selectTab('postmatch');lastEvent=s.last_event;}}catch(e){window.__lastUiError=String(e?.stack||e);console.error('refresh failed',e);$('connection').textContent='WebUI 错误：'+String(e?.message||e).slice(0,80);$('connection').className='status bad';}}
+/* 主题：明/暗，localStorage 保存 ba-theme，默认暗 */
+function setThemeBtn(){$('theme-toggle').textContent=document.documentElement.dataset.theme==='light'?'主题 · 明':'主题 · 暗';}
+function toggleTheme(){const t=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=t;try{localStorage.setItem('ba-theme',t)}catch(e){}for(const k in __htmlCache)delete __htmlCache[k];setThemeBtn();refresh();}
+async function refresh(){try{const s=await fetch('/api/state',{cache:'no-store'}).then(r=>r.json());
+  $('connection').textContent=s.connected?'日志已连接':'等待日志';
+  $('connection').className='status '+(s.connected?'ok':'warn');
+  $('workflow-state').innerHTML=`<b>${esc(s.phase)}</b><br>${esc(s.file||'尚无文件')}<br>事件：${esc(s.last_event||'-')}<br>更新时间：${new Date(s.updated*1000).toLocaleTimeString()}`;
+  $('api-state').innerHTML=`缓存 ${s.cache.entries} 条 · 命中 ${s.cache.hits} · 失败 ${s.cache.failures}<br>熔断器：${s.api_status?.circuit_open?'已开启':'正常'}<br>配额：${s.api_status?.quota?`今日 ${s.api_status.quota.used}/${s.api_status.quota.limit}（剩 ${s.api_status.quota.remaining}）`:'未启用'}<br>${esc(s.api_status?.last_error||'无最近错误')}`;
+  setHtml($('pre-list'),playerList(s.match,true));
+  setHtml($('review'),reviewHtml(s.battle_review,s.match));
+  setHtml($('charts'),chartHtml(s.battle_review));
+  refreshHistory(s.history_rev);
+  $('parser-health').textContent=JSON.stringify(s.parser_health||{},null,2);
+  $('api-health').textContent=JSON.stringify(s.api_status||{},null,2);
+  const q=s.api_status?.quota;$('quota-badge').textContent=q?`${q.used}/${q.limit}`:'--/--';$('quota-badge').title=q?`今日配额：已用 ${q.used} · 上限 ${q.limit} · 剩余 ${q.remaining}`:'公开统计未启用';
+  const api=s.api_status||{};$('circuit-dot').className='dot '+(api.offline?'off':api.circuit_open?'bad':(api.consecutive_failures||0)>0?'warn':'ok');
+  $('circuit-meter').title=api.offline?'公开统计未启用':api.circuit_open?`熔断冷却中（至 ${new Date((api.circuit_until||0)*1000).toLocaleTimeString()}）`:(api.consecutive_failures||0)>0?`接口连续失败 ${api.consecutive_failures} 次`:'接口正常';
+  setHtml($('fatal-alerts'),'');
+  setHtml($('ban-alerts'),(s.ban_alerts||[]).map(x=>`<div class="ban-alert">⚠ 你遇到过的新晋封禁：<b>${esc(x.name)}</b> [${esc(x.id)}]<a href="#" title="关闭" data-dismiss-alert>×</a></div>`).join(''));
+  const m=String(s.phase||'').match(/scoring (\d+)\/(\d+)/);let pb='启动中',pc='warn';const p=String(s.phase||'');
+  if(/对局开始/.test(p))pb='对局中';else if(/获取玩家评分/.test(p))pb='评分加载';else if(/玩家评分已就绪/.test(p)){pb='评分就绪';pc='ok';}else if(m)pb=`评分 ${m[1]}/${m[2]}`;else if(/对局结束/.test(p)){pb='已结束';pc='ok';}else if(/GameLogs not found|未找到日志目录/.test(p)){pb='找不到日志';pc='bad';}else if(!/启动中/.test(p))pb=p.includes('/')?p.split('/').pop().trim():p;
+  $('phase-badge').textContent=pb;$('phase-badge').className='status '+pc;
+  if(s.last_event!==lastEvent){if(s.last_event==='roster'||s.phase?.includes('scores ready'))setMatchView('prematch');if(s.last_event==='match_end')setMatchView('postmatch');lastEvent=s.last_event;}
+}catch(e){window.__lastUiError=String(e?.stack||e);console.error('refresh failed',e);$('connection').textContent='WebUI 错误：'+String(e?.message||e).slice(0,80);$('connection').className='status bad';setHtml($('fatal-alerts'),`<div class="ban-alert"><b>连接失败</b>：无法获取 /api/state 最新状态（每 1.5 秒自动重试） <span style="opacity:.75">${esc(String(e?.message||e))}</span></div>`);}}
 async function blPost(body){try{await fetch('/api/blacklist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});await refreshBlacklist();refresh();}catch(e){}}
 function blAdd(id){blPost({id:String(id),note:''});}
 function blRemove(id){blPost({id:String(id),op:'remove'});}
-document.addEventListener('click',e=>{const t=e.target.closest('[data-bl-add],[data-inv],[data-hist-toggle],[data-bl-remove],[data-dismiss-alert]');if(!t)return;if(t.hasAttribute('data-bl-add'))blAdd(t.dataset.blAdd);else if(t.hasAttribute('data-inv'))invToggle(t.dataset.inv,t);else if(t.hasAttribute('data-hist-toggle'))historyToggle(t.dataset.histToggle);else if(t.hasAttribute('data-bl-remove')){blRemove(t.dataset.blRemove);e.preventDefault();}else if(t.hasAttribute('data-dismiss-alert')){const a=t.closest('.ban-alert');if(a)a.remove();e.preventDefault();}});
+/* 全部交互走这张 document 级 click 委托表，无内联事件属性 */
+document.addEventListener('click',e=>{const t=e.target.closest('[data-bl-add],[data-inv],[data-hist-toggle],[data-bl-remove],[data-dismiss-alert],[data-match-view],[data-theme-toggle]');if(!t)return;if(t.hasAttribute('data-bl-add'))blAdd(t.dataset.blAdd);else if(t.hasAttribute('data-inv'))invToggle(t.dataset.inv,t);else if(t.hasAttribute('data-hist-toggle'))historyToggle(t.dataset.histToggle);else if(t.hasAttribute('data-match-view'))setMatchView(t.dataset.matchView);else if(t.hasAttribute('data-theme-toggle'))toggleTheme();else if(t.hasAttribute('data-bl-remove')){blRemove(t.dataset.blRemove);e.preventDefault();}else if(t.hasAttribute('data-dismiss-alert')){const a=t.closest('.ban-alert');if(a)a.remove();e.preventDefault();}});
 $('blacklist-add').addEventListener('click',()=>{const v=$('blacklist-id').value.trim();if(v){blAdd(v);$('blacklist-id').value='';}});
 $('blacklist-id').addEventListener('keydown',e=>{if(e.key==='Enter')$('blacklist-add').click();});
+setThemeBtn();
 refresh();setInterval(refresh,1500);
 async function refreshBlacklist(){try{const s=await fetch('/api/state',{cache:'no-store'}).then(r=>r.json());window.__blSet=new Set((s.blacklist||[]).map(x=>String(x.id)));const el=document.getElementById('blacklist-list');setHtml(el,(s.blacklist||[]).map(x=>`<span class="badge">${esc(x.id)}<a class="bl-del" href="#" title="移除" data-bl-remove="${esc(x.id)}">×</a></span>`).join(' '))}catch(e){}}
 refreshBlacklist();setInterval(refreshBlacklist,2000);

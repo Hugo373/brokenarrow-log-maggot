@@ -79,7 +79,9 @@ def main() -> int:
     try:
         check("server starts and serves UI", wait_for(lambda: http(port, "/")[0] == 200, 20))
         status, body = http(port, "/")
-        check("'/' returns dashboard", status == 200 and "工作情况" in body.decode("utf-8"))
+        text = body.decode("utf-8")
+        check("'/' returns dashboard", status == 200 and all(
+            s in text for s in ("综合分析工作台", "phase-badge", "data-match-view", "对局历史")))
 
         status, body = http(port, "/api/state")
         state = json.loads(body) if status == 200 else {}
