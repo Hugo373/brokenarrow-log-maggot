@@ -32,9 +32,12 @@ class Cache:
   with self.lock:
    self.d['entries'][k]={'time':time.time(),'value':v};now=time.time()
    if now-self.last_write<3:return
-   self.last_write=now
-   try:self.path.parent.mkdir(parents=True,exist_ok=True);self.path.write_text(json.dumps(self.d,ensure_ascii=False),encoding='utf8')
-   except OSError:pass
+   self.last_write=now;self._write()
+ def flush(self):
+  with self.lock:self.last_write=time.time();self._write()
+ def _write(self):
+  try:t=self.path.with_name(self.path.name+'.tmp');self.path.parent.mkdir(parents=True,exist_ok=True);t.write_text(json.dumps(self.d,ensure_ascii=False),encoding='utf8');os.replace(t,self.path)
+  except OSError:pass
  def fail(self):
   with self.lock:self.d['failures']+=1
  def summary(self):
@@ -47,7 +50,7 @@ class Quota:
   try:self.calls=[float(t) for t in json.loads(self.path.read_text(encoding='utf8')) if float(t)>time.time()-86400]
   except (OSError,ValueError,TypeError):pass
  def _save(self):
-  try:self.path.write_text(json.dumps(self.calls[-86400:]),encoding='utf8')
+  try:t=self.path.with_name(self.path.name+'.tmp');t.write_text(json.dumps(self.calls[-86400:]),encoding='utf8');os.replace(t,self.path)
   except OSError:pass
  def remaining(self):
   with self.lock:
@@ -210,6 +213,7 @@ class Handler(BaseHTTPRequestHandler):
   except OSError as e:
    if getattr(e,'winerror',None)!=10053:raise
  def do_POST(self):
+  if (self.headers.get('Content-Type') or '').split(';')[0].strip()!='application/json':self.send_error(403);return
   p=urlparse(self.path).path
   if p=='/api/shutdown':
    body=b'{"ok":true}';self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
@@ -265,5 +269,6 @@ def main():
  try:_urlfile().write_text(f'{url}|{int(time.time())}',encoding='utf8')
  except OSError:pass
  if not a.no_browser:threading.Timer(0.8,lambda:webbrowser.open(url)).start()
- server.serve_forever()
+ try:server.serve_forever()
+ finally:cache.flush();quota._save()
 if __name__=='__main__':main()
