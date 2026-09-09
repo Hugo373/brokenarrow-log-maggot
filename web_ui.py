@@ -201,6 +201,7 @@ class Handler(BaseHTTPRequestHandler):
     pid=(parse_qs(u.query).get('id') or [None])[0]
     if pid is None:self.send_error(400,'missing id');return
     st=self.server.state;body=json.dumps(st.relationships.investigate(pid,st.local_id),ensure_ascii=False).encode()
+   elif p=='/api/history':body=json.dumps(self.server.state.relationships.list_history(self.server.state.local_id),ensure_ascii=False).encode()
    else:body=None
    if body is None:self.send_error(404);return
    self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8' if p=='/' else 'application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)

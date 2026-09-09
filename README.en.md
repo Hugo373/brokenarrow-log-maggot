@@ -18,6 +18,7 @@ No Python or other dependencies to install; a runtime is bundled. On first launc
 - **Web dashboard**: status / pre-match / post-match review / diagnostics; double-click launch, automatic port fallback, relaunch reuses the running instance, visible error dialog on failure
 - **Player index**: continuous team-relative scoring with recency decay, party down-weighting, Bayesian shrinkage and a 90% confidence interval; shows N/A instead of guessing when data is insufficient
 - **Relationship notes**: local SQLite history of everyone you met; click a name to investigate (encounters, W/L as ally and enemy, former names, recent games); one-click friend marks; party detection; banner alerts when someone you met gets banned
+- **Match history**: the "history" tab lists every locally recorded game (time, map, FID, W/L, player count, roster); click a row to expand player details
 - **API governance**: per-endpoint cache TTLs, fresh/stale distinction, tiered circuit breaker, throttled retries, persisted rolling 24h quota, human-verification page detection, stale-cache fallback, automatic retry aligned to breaker windows
 - **Engineering**: zero third-party dependencies (Python 3 stdlib only); end-to-end smoke test covering the HTTP surface, list edits, log pipeline, quota and the relationship store; GitHub Actions gate plus tag-driven releases
 

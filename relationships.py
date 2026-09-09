@@ -81,6 +81,14 @@ class RelationshipDB:
         return alerts
     def name_history(self, pid: str) -> list[dict]:
         with self.lock:return [{'name':r[0],'first_seen':r[1],'last_seen':r[2]} for r in self.conn.execute('SELECT name,first_seen,last_seen FROM names WHERE id=? ORDER BY last_seen DESC',(str(pid),))]
+    def list_history(self, local_id: str|None) -> list[dict]:
+        out=[]
+        with self.lock:
+            rows=self.conn.execute('SELECT m.fid,m.started,m.map,r.won FROM matches m LEFT JOIN match_results r ON r.fid=m.fid ORDER BY m.started DESC').fetchall()
+            for fid,started,mmap,won in rows:
+                players=[{'id':r[0],'name':r[1],'team':r[2]} for r in self.conn.execute('SELECT id,name,team FROM participants WHERE fid=? ORDER BY team',(fid,))]
+                out.append({'fid':fid,'started':started,'map':mmap,'won':None if won is None else bool(won),'player_count':len(players),'players':players,'with_local':str(local_id) in {p['id'] for p in players} if local_id else False})
+        return out
     def investigate(self, pid: str, local_id: str|None) -> dict:
         pid=str(pid);out={'id':pid,'blacklisted':False,'names':[],'first_seen':None,'last_seen':None,'teammate':None,'opponent':None,'recent':[]}
         with self.lock:

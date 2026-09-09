@@ -102,6 +102,15 @@ def main() -> int:
         check("match end recorded", wait_for(
             lambda: "match_end" in (json.loads(http(port, "/api/state")[1]).get("parser_health", {}).get("markers") or {}), 10))
 
+        status, body = http(port, "/api/history")
+        hist = json.loads(body) if status == 200 else []
+        check("history returns recorded match", status == 200 and any(
+            m.get("fid") == "990001" for m in hist), str(status))
+        entry = next((m for m in hist if m.get("fid") == "990001"), {})
+        check("history entry shape", set(entry) >= {"fid", "started", "map", "won", "player_count", "players", "with_local"}
+              and entry.get("player_count") == 3 and entry.get("with_local") is True
+              and {p.get("name") for p in entry.get("players", [])} == {"SmokeTester", "FriendDude", "EnemyDude"},
+              json.dumps(entry, ensure_ascii=False)[:200])
         status, body = http(port, "/api/investigate?id=67890")
         detail = json.loads(body) if status == 200 else {}
         check("investigate teammate", status == 200 and (detail.get("teammate") or {}).get("matches") == 1 and detail.get("names"), str(status))
