@@ -195,6 +195,7 @@ class ResilientClient(PublicStatsClient):
    self.last_error='quota_exceeded'
    if stale is not None:return stale
    raise RuntimeError('daily quota exhausted / 今日配额已用完')
+  not_found=False
   for attempt in range(3):
    try:
     with self.lock:
@@ -209,10 +210,10 @@ class ResilientClient(PublicStatsClient):
     self.last_error=f'HTTP {e.code}'
     if e.code==429:self.open_until=time.time()+30;break
     if e.code in (401,403):self.open_until=time.time()+300;break
-    if e.code==404:break
+    if e.code==404:not_found=True;break  # definitive "absent from leaderboard", not an API fault
    except (URLError,TimeoutError,OSError,ValueError,json.JSONDecodeError) as e:self.last_error=type(e).__name__
    if attempt<2:time.sleep(.5*(2**attempt))
-  self.failures+=1;self.cache.fail()
+  if not not_found:self.failures+=1;self.cache.fail()
   if self.failures>=5:self.open_until=time.time()+60
   if stale is not None:return stale
   raise RuntimeError(self.last_error or 'api_unavailable')
