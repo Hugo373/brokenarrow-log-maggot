@@ -28,10 +28,10 @@ def check(name: str, ok: bool, detail: str = "") -> None:
     CHECKS.append((name, bool(ok), detail))
 
 
-def http(port: int, path: str, payload: dict | None = None, raw_body: bytes | None = None):
+def http(port: int, path: str, payload: dict | None = None, raw_body: bytes | None = None, content_type: str = "application/json"):
     url = f"http://127.0.0.1:{port}{path}"
     data = raw_body if raw_body is not None else (json.dumps(payload).encode() if payload is not None else None)
-    request = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    request = urllib.request.Request(url, data=data, headers={"Content-Type": content_type})
     try:
         with urllib.request.urlopen(request, timeout=5) as response:
             return response.status, response.read()
@@ -59,6 +59,9 @@ def main() -> int:
     except Exception as exc:
         check("extreme loss_value never raises", False, repr(exc))
 
+    urlfile = ROOT / "ba-webui.url"
+    url_before = urlfile.read_text(encoding="utf8") if urlfile.exists() else "<absent>"
+
     workdir = Path(tempfile.mkdtemp(prefix="ba-smoke-"))
     logs = workdir / "GameLogs"
     logs.mkdir()
@@ -69,13 +72,13 @@ def main() -> int:
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
     sock.close()
-
     proc = subprocess.Popen(
         [sys.executable, str(ROOT / "web_ui.py"), "--dir", str(logs), "--port", str(port),
          "--no-stats", "--no-browser", "--daily-limit", "10",
          "--rel-db", str(workdir / "rel.sqlite"),
          "--cache", str(workdir / "cache.json")],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace", cwd=ROOT)
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace", cwd=ROOT,
+        env=dict(os.environ, BA_URL_FILE=str(workdir / "smoke.url")))
     try:
         check("server starts and serves UI", wait_for(lambda: http(port, "/")[0] == 200, 20))
         status, body = http(port, "/")
@@ -91,12 +94,23 @@ def main() -> int:
 
         check("unknown path is 404", http(port, "/nope")[0] == 404)
 
+        url_after = urlfile.read_text(encoding="utf8") if urlfile.exists() else "<absent>"
+        check("smoke leaves real url file untouched", url_before == url_after, f"{url_before!r} -> {url_after!r}")
         status, body = http(port, "/api/blacklist", {"id": "999001", "note": "smoke"})
         check("blacklist add", status == 200 and json.loads(body).get("ok") is True, str(status))
         _, body = http(port, "/api/state")
         check("blacklist persists in state", any(x.get("id") == "999001" for x in json.loads(body).get("blacklist", [])))
 
         check("malformed POST is 400", http(port, "/api/blacklist", raw_body=b"{broken")[0] == 400)
+
+        status, _ = http(port, "/api/blacklist", raw_body=b'{"id":"1"}', content_type="text/plain")
+        check("POST wrong content-type is 403", status == 403, str(status))
+        status, _ = http(port, "/api/blacklist", raw_body=b'{"id":"1"}', content_type="")
+        check("POST form content-type is 403", status == 403, str(status))
+        status, body = http(port, "/api/blacklist", {"id": "999001", "note": "gate"}, content_type="application/json; charset=utf-8")
+        check("POST json with charset passes", status == 200 and json.loads(body).get("ok") is True, str(status))
+        status, _ = http(port, "/api/shutdown", raw_body=b"{}", content_type="text/plain")
+        check("shutdown gated by content-type", status == 403 and http(port, "/api/state")[0] == 200, str(status))
 
         status, _ = http(port, "/api/blacklist", {"id": "999001", "op": "remove"})
         check("blacklist remove", status == 200, str(status))
