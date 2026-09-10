@@ -120,11 +120,14 @@ class Handler(BaseHTTPRequestHandler):
    threading.Thread(target=self.server.shutdown,daemon=True).start();return
   if p!='/api/blacklist':self.send_error(404);return
   try:
-   data=json.loads(self.rfile.read(int(self.headers.get('Content-Length','0'))));rel=self.server.state.relationships
+   try:n=int(self.headers.get('Content-Length') or 0)
+   except ValueError:n=-1
+   if n<0 or n>65536:self.send_error(400,'bad content length');return
+   data=json.loads(self.rfile.read(n));rel=self.server.state.relationships
    if data.get('op')=='remove':rel.remove_blacklist(str(data.get('id')))
    else:rel.set_blacklist(str(data.get('id')),str(data.get('note','')))
    body=b'{"ok":true}';self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
-  except Exception as e:self.send_error(400,str(e))
+  except Exception:self.send_error(400,'bad request')
  def log_message(self,*args):pass
 
 def main():
