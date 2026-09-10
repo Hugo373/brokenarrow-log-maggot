@@ -29,11 +29,13 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 
 def http(port: int, path: str, payload: dict | None = None, raw_body: bytes | None = None, content_type: str = "application/json"):
+    # loopback must never be proxied: urllib routes 127.0.0.1 through the system proxy when one is set (E2 evidence)
+    _DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     url = f"http://127.0.0.1:{port}{path}"
     data = raw_body if raw_body is not None else (json.dumps(payload).encode() if payload is not None else None)
     request = urllib.request.Request(url, data=data, headers={"Content-Type": content_type})
     try:
-        with urllib.request.urlopen(request, timeout=5) as response:
+        with _DIRECT.open(request, timeout=5) as response:
             return response.status, response.read()
     except urllib.error.HTTPError as error:
         return error.code, error.read()
@@ -147,6 +149,30 @@ def main() -> int:
         detail = json.loads(body) if status == 200 else {}
         check("investigate opponent side", status == 200 and (detail.get("opponent") or {}).get("matches") == 1, str(status))
         check("investigate requires id", http(port, "/api/investigate")[0] == 400)
+
+        # 端到端（无 stub）：代理失效 + Request 就地改写（set_proxy 把 host 改成死代理）后，回退通道必须仍能拿到真 JSON。
+        # 必须在全新子进程里做：全局 opener 缓存按进程计，本进程可能已在不带代理的环境下建过 opener。
+        child_code = (
+            "import os, sys, json, time\n"
+            "os.environ['HTTP_PROXY'] = 'http://127.0.0.1:9'\n"
+            "os.environ['http_proxy'] = 'http://127.0.0.1:9'\n"
+            f"sys.path.insert(0, {str(ROOT)!r})\n"
+            "from ba_tool import PublicStatsClient\n"
+            f"c = PublicStatsClient('http://127.0.0.1:{port}')\n"
+            "t0 = time.time()\n"
+            "try:\n"
+            "    data = c._get('/api/state', {})\n"
+            "    print(json.dumps({'ok': isinstance(data, dict), 'direct_ok': c._direct_ok, 'elapsed': round(time.time()-t0, 2)}))\n"
+            "except Exception as exc:\n"
+            "    print(json.dumps({'ok': False, 'err': type(exc).__name__, 'direct_ok': c._direct_ok}))\n"
+        )
+        child = subprocess.run([sys.executable, "-c", child_code], capture_output=True, text=True, timeout=60, cwd=ROOT)
+        try:
+            out = json.loads(child.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            out = {"ok": False, "err": f"no JSON: {child.stdout[:80]!r}/{child.stderr[:80]!r}"}
+        check("fallback survives request mutation", out.get("ok") is True and out.get("direct_ok") is True,
+              f"child_out={out}")
     finally:
         proc.kill()
         proc.wait(timeout=10)

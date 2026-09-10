@@ -76,32 +76,29 @@ class PublicStatsClient:
 
     def _get(self, path: str, params: dict) -> dict:
         query = urllib.parse.urlencode(params)
-        request = urllib.request.Request(f"{self.base_url}{path}?{query}", headers={"User-Agent": "BrokenArrowLogTool/0.1"})
         # urllib 的进程级全局 opener 在首次使用时快照系统代理；代理中途失效会把整个进程困在死通道上
-        # （新进程没事，老进程一直 URLError）。传输层失败就换直连通道重试一次，并记住最后成功的通道。
-        # 通道选择是无锁的最后写入胜出（GIL 下安全）；每次回退都新建 opener，不复用任何全局状态。
+        # （新进程没事，老进程一直 URLError）。此外 set_proxy() 会就地改写 Request 的 host——
+        # 失败的代理尝试会把 Request 变成指向死代理本身，复用它会让任何后续通道都打到死代理上。
+        # 因此：每次尝试（首次与回退、任一通道）都新建 Request；回退一律新建 opener，不复用任何全局状态。
+        # 传输层失败（URLError/TimeoutError）换通道重试一次；HTTP 应答说明传输是通的，直接上抛。
+        # 通道选择是无锁的最后写入胜出（GIL 下安全）。
+        def _open(direct: bool):
+            request = urllib.request.Request(f"{self.base_url}{path}?{query}", headers={"User-Agent": "BrokenArrowLogTool/0.1"})
+            if direct:
+                return self._direct_opener().open(request, timeout=self.timeout)
+            return urllib.request.urlopen(request, timeout=self.timeout)
         try:
-            if self._direct_ok:
-                with self._direct_opener().open(request, timeout=self.timeout) as response:
-                    body = response.read()
-                    content_type = (response.headers.get("Content-Type") or "").lower()
-            else:
-                with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                    body = response.read()
-                    content_type = (response.headers.get("Content-Type") or "").lower()
+            with _open(self._direct_ok) as response:
+                body = response.read()
+                content_type = (response.headers.get("Content-Type") or "").lower()
         except urllib.error.HTTPError:
             raise  # HTTP-level answers mean transport worked; no channel flip, no re-request
         except (urllib.error.URLError, TimeoutError):
             self._direct_ok = not self._direct_ok
             try:
-                if self._direct_ok:
-                    with self._direct_opener().open(request, timeout=self.timeout) as response:
-                        body = response.read()
-                        content_type = (response.headers.get("Content-Type") or "").lower()
-                else:
-                    with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                        body = response.read()
-                        content_type = (response.headers.get("Content-Type") or "").lower()
+                with _open(self._direct_ok) as response:
+                    body = response.read()
+                    content_type = (response.headers.get("Content-Type") or "").lower()
             except urllib.error.HTTPError:
                 raise  # transport worked on the retry channel; HTTP-level answers skip the fallback too
             except (urllib.error.URLError, TimeoutError):
