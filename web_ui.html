@@ -85,6 +85,7 @@
     #blacklist-list { margin-top:10px; margin-bottom:16px; }
     #workflow-state, #api-state { margin-top:12px; font-size:13px; line-height:1.7; }
     .statline.bad { color:var(--danger); font-weight:600; }
+    .statline.mid { color:var(--mid); font-weight:600; }
     @media(max-width:650px){
       body{padding:0 14px 28px}
       header.top{min-height:64px;padding:8px 0}
@@ -191,7 +192,7 @@ async function refresh(){try{const s=await fetch('/api/state',{cache:'no-store'}
   $('connection').textContent=s.connected?'日志已连接':'等待日志';
   $('connection').className='status '+(s.connected?'ok':'warn');
   $('workflow-state').innerHTML=`<b>${esc(s.phase)}</b><br>${esc(s.file||'尚无文件')}<br>事件：${esc(s.last_event||'-')}<br>更新时间：${new Date(s.updated*1000).toLocaleTimeString()}`;
-  $('api-state').innerHTML=`缓存 ${s.cache.entries} 条 · 命中 ${s.cache.hits} · 失败 ${s.cache.failures}<br>熔断器：<span${s.api_status?.circuit_open?' class="statline bad"':''}>${s.api_status?.circuit_open?'已开启':'正常'}</span><br>配额：${s.api_status?.quota?`<span${s.api_status.quota.remaining<=0?' class="statline bad"':''}>今日 ${s.api_status.quota.used}/${s.api_status.quota.limit}（剩 ${s.api_status.quota.remaining}）</span>`:'未启用'}<br>${s.api_status?.last_error?`<span class="statline bad">${esc(s.api_status.last_error)}</span>`:'无最近错误'}`;
+  $('api-state').innerHTML=`缓存 ${s.cache.entries} 条 · 命中 ${s.cache.hits} · 失败 ${s.cache.failures}<br>熔断器：<span${s.api_status?.circuit_open?' class="statline bad"':''}>${s.api_status?.circuit_open?'已开启':'正常'}</span><br>配额：${s.api_status?.quota?`<span${s.api_status.quota.remaining<=0?' class="statline bad"':''}>今日 ${s.api_status.quota.used}/${s.api_status.quota.limit}（剩 ${s.api_status.quota.remaining}）</span>`:'未启用'}<br>${s.api_status?.last_error?`<span class="statline bad">${esc(s.api_status.last_error)}</span>`:'无最近错误'}<br>通道：${s.api_status?.channel==='direct'?'<span class="statline mid" title="系统代理路径失败，已自动切换为直连">直连（已降级）</span>':'系统代理'}`;
   setHtml($('pre-list'),playerList(s.match,true));
   setHtml($('review'),reviewHtml(s.battle_review,s.match));
   setHtml($('charts'),chartHtml(s.battle_review));
