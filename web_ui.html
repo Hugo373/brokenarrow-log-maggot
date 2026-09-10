@@ -162,6 +162,7 @@
 <script>
 const $=id=>document.getElementById(id), esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let lastEvent='';
+let __proxyAlertDismissed=false; /* 直连降级横幅：本次降级期内关闭后不再弹出，恢复系统代理后重置 */
 /* 本局容器：局前/局后两形态在同一容器内翻动 */
 function setMatchView(v){$('view-prematch').classList.toggle('active',v==='prematch');$('view-postmatch').classList.toggle('active',v==='postmatch');document.querySelectorAll('[data-match-view]').forEach(b=>b.classList.toggle('active',b.dataset.matchView===v));}
 function statusText(s,reason){const r=String(reason||'');if(s==='api_error'&&/配额|quota/i.test(r))return '今日配额已用完（缓存数据继续展示）';if(s==='api_error'&&r.includes('circuit_open'))return '网络熔断冷却中';return ({queued:'排队中',fetching_matches:'获取历史对局',ready:'已完成',provisional:'暂定评分',insufficient_data:'有效数据不足',not_found:'未收录',api_error:'接口失败'})[s]||s||'等待';}
@@ -203,7 +204,9 @@ async function refresh(){try{const s=await fetch('/api/state',{cache:'no-store'}
   const api=s.api_status||{};$('circuit-dot').className='dot '+(api.offline?'off':api.circuit_open?'bad':(api.consecutive_failures||0)>0?'warn':'ok');
   $('circuit-meter').title=api.offline?'公开统计未启用':api.circuit_open?`熔断冷却中（至 ${new Date((api.circuit_until||0)*1000).toLocaleTimeString()}）`:(api.consecutive_failures||0)>0?`接口连续失败 ${api.consecutive_failures} 次`:'接口正常';
   setHtml($('fatal-alerts'),'');
-  setHtml($('ban-alerts'),(s.ban_alerts||[]).map(x=>`<div class="ban-alert">⚠ 你遇到过的新晋封禁：<b>${esc(x.name)}</b> [${esc(x.id)}]<a href="#" title="关闭" data-dismiss-alert>×</a></div>`).join(''));
+  if(s.api_status?.channel!=='direct')__proxyAlertDismissed=false;
+  const __proxyBanner=s.api_status?.channel==='direct'&&!__proxyAlertDismissed?'<div class="ban-alert" data-proxy-alert>⚠ 网络提示：系统代理路径已失效，已自动切换为直连。若你在使用代理工具（v2rayN/mihomo），请检查其状态。<a href="#" title="关闭" data-dismiss-alert>×</a></div>':'';
+  setHtml($('ban-alerts'),__proxyBanner+(s.ban_alerts||[]).map(x=>`<div class="ban-alert">⚠ 你遇到过的新晋封禁：<b>${esc(x.name)}</b> [${esc(x.id)}]<a href="#" title="关闭" data-dismiss-alert>×</a></div>`).join(''));
   const m=String(s.phase||'').match(/scoring (\d+)\/(\d+)/);let pb='启动中',pc='warn';const p=String(s.phase||'');
   if(/对局开始/.test(p))pb='对局中';else if(/获取玩家评分/.test(p))pb='评分加载';else if(/玩家评分已就绪/.test(p)){pb='评分就绪';pc='ok';}else if(m)pb=`评分 ${m[1]}/${m[2]}`;else if(/对局结束/.test(p)){pb='已结束';pc='ok';}else if(/GameLogs not found|未找到日志目录/.test(p)){pb='找不到日志';pc='bad';}else if(!/启动中/.test(p))pb=p.includes('/')?p.split('/').pop().trim():p;
   $('phase-badge').textContent=pb;$('phase-badge').className='status '+pc;
@@ -213,7 +216,7 @@ async function blPost(body){try{await fetch('/api/blacklist',{method:'POST',head
 function blAdd(id){blPost({id:String(id),note:''});}
 function blRemove(id){blPost({id:String(id),op:'remove'});}
 /* 全部交互走这张 document 级 click 委托表，无内联事件属性 */
-document.addEventListener('click',e=>{const t=e.target.closest('[data-bl-add],[data-inv],[data-hist-toggle],[data-bl-remove],[data-dismiss-alert],[data-match-view],[data-theme-toggle]');if(!t)return;if(t.hasAttribute('data-bl-add'))blAdd(t.dataset.blAdd);else if(t.hasAttribute('data-inv'))invToggle(t.dataset.inv,t);else if(t.hasAttribute('data-hist-toggle'))historyToggle(t.dataset.histToggle);else if(t.hasAttribute('data-match-view'))setMatchView(t.dataset.matchView);else if(t.hasAttribute('data-theme-toggle'))toggleTheme();else if(t.hasAttribute('data-bl-remove')){blRemove(t.dataset.blRemove);e.preventDefault();}else if(t.hasAttribute('data-dismiss-alert')){const a=t.closest('.ban-alert');if(a)a.remove();e.preventDefault();}});
+document.addEventListener('click',e=>{const t=e.target.closest('[data-bl-add],[data-inv],[data-hist-toggle],[data-bl-remove],[data-dismiss-alert],[data-match-view],[data-theme-toggle]');if(!t)return;if(t.hasAttribute('data-bl-add'))blAdd(t.dataset.blAdd);else if(t.hasAttribute('data-inv'))invToggle(t.dataset.inv,t);else if(t.hasAttribute('data-hist-toggle'))historyToggle(t.dataset.histToggle);else if(t.hasAttribute('data-match-view'))setMatchView(t.dataset.matchView);else if(t.hasAttribute('data-theme-toggle'))toggleTheme();else if(t.hasAttribute('data-bl-remove')){blRemove(t.dataset.blRemove);e.preventDefault();}else if(t.hasAttribute('data-dismiss-alert')){const a=t.closest('.ban-alert');if(a){if(a.hasAttribute('data-proxy-alert'))__proxyAlertDismissed=true;a.remove();}e.preventDefault();}});
 $('blacklist-add').addEventListener('click',()=>{const v=$('blacklist-id').value.trim();if(v){blAdd(v);$('blacklist-id').value='';}});
 $('blacklist-id').addEventListener('keydown',e=>{if(e.key==='Enter')$('blacklist-add').click();});
 setThemeBtn();
