@@ -206,6 +206,22 @@ def main() -> int:
     wrapped.write_text(json.dumps({"version": 2, "limit": 3, "calls": [now, now]}), encoding="utf-8")
     sw = Quota(wrapped, limit=9).summary()
     check("persisted quota limit wins", sw["limit"] == 3, json.dumps(sw))
+    bad_limit = workdir / "quota-badlimit.json"
+    bad_limit.write_text(json.dumps({"version": 2, "limit": float("inf"), "calls": [now, now]}), encoding="utf-8")
+    sbad = Quota(bad_limit, limit=5).summary()
+    check("quota ignores infinite limit", sbad["limit"] == 5 and sbad["used"] == 2, json.dumps(sbad))
+    neg = workdir / "quota-neglimit.json"
+    neg.write_text(json.dumps({"version": 2, "limit": -3, "calls": [now]}), encoding="utf-8")
+    sneg = Quota(neg, limit=7).summary()
+    check("quota ignores bad limit value", sneg["limit"] == 7 and sneg["used"] == 1, json.dumps(sneg))
+    skewed = workdir / "quota-skewed.json"
+    skewed.write_text(json.dumps({"version": 2, "limit": 5, "calls": [now, now + 7200]}), encoding="utf-8")
+    sskew = Quota(skewed, limit=5).summary()
+    check("quota drops skewed timestamps", sskew["used"] == 1, json.dumps(sskew))
+    junk = workdir / "quota-junk.json"
+    junk.write_text(json.dumps({"version": 2, "limit": 3, "calls": "junk"}), encoding="utf-8")
+    sjunk = Quota(junk, limit=3).summary()
+    check("quota tolerates non-list calls", sjunk["used"] == 0 and sjunk["limit"] == 3, json.dumps(sjunk))
 
     from relationships import RelationshipDB
     rel = RelationshipDB(workdir / "rel-unit.sqlite")
@@ -335,6 +351,91 @@ def main() -> int:
         check("quota exhausted raises clear error", False, "no error raised")
     except RuntimeError as exc:
         check("quota exhausted raises clear error", "配额" in str(exc))
+    # 404 是确定性的“榜上无此玩家”，不算熔断失败：计数器不涨、熔断不开
+    import urllib.error
+    import ba_tool
+    nf_cache = Cache(workdir / "nf-cache.json")
+    nf_client = ResilientClient("https://127.0.0.1:9", nf_cache)
+    orig_get = ba_tool.PublicStatsClient._get
+    try:
+        def nf_get(self, path, params):
+            raise urllib.error.HTTPError("u", 404, "nf", {}, None)
+        ba_tool.PublicStatsClient._get = nf_get
+        raised = []
+        for _ in range(6):
+            try:
+                nf_client.player_report("x")
+            except RuntimeError as exc:
+                if "HTTP 404" not in str(exc):
+                    raise
+        st = nf_client.status()
+        check("404 does not trip circuit", nf_client.failures == 0 and not st["circuit_open"] and nf_cache.summary()["failures"] == 0,
+              f"failures={nf_client.failures} circuit={st['circuit_open']} cache_failures={nf_cache.summary()['failures']}")
+
+        def boom_get(self, path, params):
+            raise urllib.error.URLError("boom")
+        ba_tool.PublicStatsClient._get = boom_get
+        ur_client = ResilientClient("https://127.0.0.1:9", Cache(workdir / "ur-cache.json"))
+        for _ in range(5):
+            try:
+                ur_client.player_report("x")
+            except RuntimeError:
+                pass
+        st2 = ur_client.status()
+        check("real faults still trip circuit", ur_client.failures == 5 and st2["circuit_open"],
+              f"failures={ur_client.failures} circuit={st2['circuit_open']}")
+    finally:
+        ba_tool.PublicStatsClient._get = orig_get
+
+    # elo 字段为垃圾值（无法转 float）时不产生 elo_delta，也不判为失败
+    class GarbageEloClient:
+        def player_report(self, _pid):
+            return {"trend": {"points": [{"matchId": "t-elo", "ratingAfter": "garbage", "ratingBefore": 1500.0}]}, "matchCount": 1}
+        def match_report(self, _mid):
+            return {"mvpRanking": []}
+    mtg = Match(fid="t-elo")
+    mtg.players = [Player("777", "GarbageElo", "Alpha")]
+    mag = MatchAnalysis(GarbageEloClient())
+    mag.query_match(mtg)
+    gst = (mtg.player_stats.get("777") or {})
+    check("garbage elo does not poison player",
+          "elo_delta" not in gst and gst.get("status") == "insufficient_data" and not mag.retry_state and mag.retry_timer is None,
+          json.dumps({"status": gst.get("status"), "keys": sorted(k for k in gst if k != "matches"), "retry_state": mag.retry_state}))
+
+    # --reset-quota：启动即删除持久化配额文件，旧预算不再约束
+    workdir2 = Path(tempfile.mkdtemp(prefix="ba-smoke2-"))
+    logs2 = workdir2 / "GameLogs"
+    logs2.mkdir()
+    (logs2 / "Gamelog__2099_01_01__00_00.log").write_text("", encoding="utf-8")
+    qfile2 = workdir2 / "ba-api-quota.json"
+    qfile2.write_text(json.dumps({"version": 2, "limit": 500, "calls": [time.time(), time.time()]}), encoding="utf-8")
+    sock3 = socket.socket(); sock3.bind(("127.0.0.1", 0)); port3 = sock3.getsockname()[1]; sock3.close()
+    proc3 = subprocess.Popen(
+        [sys.executable, str(ROOT / "web_ui.py"), "--dir", str(logs2), "--port", str(port3),
+         "--no-stats", "--no-browser", "--daily-limit", "10", "--reset-quota",
+         "--rel-db", str(workdir2 / "rel.sqlite"),
+         "--cache", str(workdir2 / "cache.json")],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="replace", cwd=ROOT,
+        env=dict(os.environ, BA_URL_FILE=str(workdir2 / "reset.url")))
+    try:
+        booted = wait_for(lambda: http(port3, "/api/state")[0] == 200, 10)
+    finally:
+        proc3.kill()
+        proc3.wait(timeout=10)
+    if not booted:
+        out3 = (proc3.stdout.read() or "")[:200] if proc3.stdout else ""
+    else:
+        out3 = ""
+    if qfile2.exists():
+        try:
+            leftover = json.loads(qfile2.read_text(encoding="utf8"))
+            cleared = leftover.get("calls") == []
+            state_desc = f"file exists, calls={len(leftover.get('calls', []))}"
+        except (OSError, ValueError, TypeError):
+            cleared, state_desc = True, "file unreadable"
+    else:
+        cleared, state_desc = True, "file deleted"
+    check("reset-quota clears persisted budget", booted and cleared, f"{state_desc}{out3}")
 
     failed = [name for name, ok, _ in CHECKS if not ok]
     for name, ok, detail in CHECKS:
