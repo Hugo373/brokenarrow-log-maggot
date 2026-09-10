@@ -229,20 +229,6 @@ class ResilientClient(PublicStatsClient):
   except Exception:self.cache.fail();return stale
  def ban_list(self):return self._cached('ban','/api/leaderboard/ban',{'limit':1000})
 
-def compact_player_report(data: dict) -> dict:
-    trend = data.get("trend") if isinstance(data.get("trend"), dict) else {}
-    points = trend.get("points") if isinstance(trend.get("points"), list) else []
-    latest = points[-1] if points else {}
-    return {
-        "elo": latest.get("ratingAfter", data.get("elo", data.get("rating"))),
-        "kd": latest.get("kdRatio", data.get("kd")),
-        "win_rate": data.get("winRate", data.get("win_rate")),
-        "match_count": data.get("matchCount", len(points)),
-        "maggot_index": None,
-        "play_style": data.get("playStyle"),
-        "error": None,
-    }
-
 def human_report(match: Match) -> str:
     lines = ["", "=" * 72, "BROKEN ARROW MATCH ANALYSIS / 断箭对局分析", "=" * 72]
     lines += [f"Map / 地图: {match.map or 'Unknown / 未知'}", f"FID: {match.fid or 'Unknown / 未知'}", f"Time / 时间: {match.start_time or '?'} -> {match.end_time or '?'}"]
