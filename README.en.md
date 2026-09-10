@@ -2,20 +2,20 @@
 
 [中文](README.md)
 
-A read-only local tool for Broken Arrow GameLogs: it detects the live match roster, queries public statistics to compute a per-player performance score (dashboard 0–100, higher is stronger), and keeps a local database of the players you meet — encounter records, name history, ban alerts. Everything shows up in a browser dashboard: pre-match board, post-match review, diagnostics.
+A read-only local tool for Broken Arrow GameLogs: it detects the live match roster, queries public statistics to compute a per-player performance score (dashboard 0–100, higher is stronger), and keeps a local database of the players you meet, including encounter records, name history, ban alerts. Everything shows up in a browser dashboard: pre-match board, post-match review, diagnostics.
 
 ## Quick Start
 
 1. Open [Releases](../../releases) and download the latest `BrokenArrowLogTool-*.zip`
-2. Extract it anywhere (keep it out of the game directory)
-3. Double-click `start.bat` — the dashboard opens in your browser automatically
+2. Extract it anywhere
+3. Double-click `start.bat` and the dashboard opens in your browser automatically
 
 No Python or other dependencies to install; a runtime is bundled. On first launch the GameLogs folder is located automatically via your Steam libraries. Enter a match, wait a few seconds after the roster appears, and every player's index shows up in the pre-match tab.
 
 ## Features
 
 - **Live log monitoring**: byte-offset incremental reads of the newest Gamelog; lobby/match/roster/FID state machine with parser telemetry
-- **Web dashboard**: status / pre-match / post-match review / diagnostics; double-click launch, automatic port fallback, relaunch reuses the running instance, visible error dialog on failure
+- **Web dashboard**: single-page layout, sticky status bar (stage/quota/breaker/connection/light-dark theme), match pane (pre-match board and post-match review flip in the same container), history, diagnostics (collapsible groups); double-click launch, automatic port fallback, relaunch reuses the running instance, visible error dialog on failure
 - **Player index**: continuous team-relative scoring with recency decay, party down-weighting, Bayesian shrinkage and a 90% confidence interval; shows N/A instead of guessing when data is insufficient
 - **Relationship notes**: local SQLite history of everyone you met; click a name to investigate (encounters, W/L as ally and enemy, former names, recent games); one-click friend marks; party detection; banner alerts when someone you met gets banned
 - **Match history**: the "history" tab lists every locally recorded game (time, map, FID, W/L, player count, roster); click a row to expand player details
@@ -66,7 +66,7 @@ index       = 10 − 9 × shrunk mean (1–10 domain, upstream-compatible), 90% 
 display     = 100 × (10 − index) / 9   # dashboard shows 0–100, higher is stronger
 ```
 
-`ba_tool.maggot_index` keeps the upstream cosine rank formula as a reference implementation.
+`ba_tool.maggot_index` keeps the upstream cosine rank formula as a reference implementation for comparison.
 
 ## Architecture
 
@@ -81,12 +81,11 @@ State ──→ ThreadingHTTPServer 127.0.0.1 ──→ web_ui.html (polling ren
 
 ## Privacy & safety
 
-Reads GameLogs only; no process memory access, no injection, no input hooks, no game-file writes. API requests carry only numeric player/match IDs. The server binds 127.0.0.1 only.
+Reads GameLogs only; no process-memory reads or writes, no injection, no game-file writes. API requests carry only numeric player/match IDs. The server binds 127.0.0.1 only.
 
 ## Game-update compatibility
 
-The parser silently ignores unrecognized log lines and replaces malformed bytes, so hot patches rarely require changes. After an official update, check: the `Version:` string, `Player list:` row format, `FID:<digits>`, `GameRoom entered/exited`, `GameController dispose`, login-failure line prefixes, and localization encodings. Hot patch 1.2.0.2 passed this checklist against live logs.
-
+The parser silently ignores unrecognized log lines and replaces malformed bytes, so hot patches rarely require changes. After an official update, check: the `Version:` string, `Player list:` row format, `FID:<digits>`, `GameRoom entered/exited`, `GameController dispose`, login-failure line prefixes; no adjustment needed as long as the localization-encoding markers stay unchanged.
 ## Development
 
 ```text
