@@ -393,6 +393,18 @@ def main() -> int:
         except _uerr.URLError:
             raised = True
         check("both channels fail raises URLError", raised and c2._direct_ok == before, f"raised={raised} flag={c2._direct_ok}")
+        http_proxy = _StubOpener([_uerr.HTTPError("u", 404, "nf", {}, None)])
+        http_direct = _StubOpener([])
+        _ureq.urlopen = lambda request, timeout=None: http_proxy.open(request, timeout=timeout)
+        ba_tool.PublicStatsClient._direct_opener = lambda self: http_direct
+        c4 = PublicStatsClient("http://x"); before4 = c4._direct_ok
+        http_raised = False
+        try:
+            c4._get("/api/analysis/player", {"stbid": "1"})
+        except _uerr.HTTPError:
+            http_raised = True
+        check("http errors skip the fallback", http_raised and http_direct.calls == 0 and c4._direct_ok == before4,
+              f"raised={http_raised} direct_calls={http_direct.calls} flag={c4._direct_ok}")
         win_proxy = _StubOpener([_FakeResponse()])
         lose_direct = _StubOpener([_uerr.URLError("dead")])
         _ureq.urlopen = lambda request, timeout=None: win_proxy.open(request, timeout=timeout)

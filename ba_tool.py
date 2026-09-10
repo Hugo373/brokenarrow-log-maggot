@@ -89,6 +89,8 @@ class PublicStatsClient:
                 with urllib.request.urlopen(request, timeout=self.timeout) as response:
                     body = response.read()
                     content_type = (response.headers.get("Content-Type") or "").lower()
+        except urllib.error.HTTPError:
+            raise  # HTTP-level answers mean transport worked; no channel flip, no re-request
         except (urllib.error.URLError, TimeoutError):
             self._direct_ok = not self._direct_ok
             try:
@@ -100,6 +102,8 @@ class PublicStatsClient:
                     with urllib.request.urlopen(request, timeout=self.timeout) as response:
                         body = response.read()
                         content_type = (response.headers.get("Content-Type") or "").lower()
+            except urllib.error.HTTPError:
+                raise  # transport worked on the retry channel; HTTP-level answers skip the fallback too
             except (urllib.error.URLError, TimeoutError):
                 self._direct_ok = not self._direct_ok  # both channels dead: undo the flip
                 raise
