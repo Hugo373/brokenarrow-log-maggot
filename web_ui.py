@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen, build_opener, ProxyHandler
 from ba_tool import LogParser, LogWatcher, MatchAnalysis, match_from_dict, human_report, scan, find_gamelogs, DEFAULT_GAMELOGS, MATCH_RETRY_DELAYS, Cache, Quota, ResilientClient
 from analysis_engine import analyze_single_match
 from relationships import RelationshipDB
@@ -136,11 +136,12 @@ def main():
  ap=argparse.ArgumentParser();ap.add_argument('--dir',type=Path,default=None);ap.add_argument('--port',type=int,default=8765);ap.add_argument('--no-stats',action='store_true');ap.add_argument('--no-browser',action='store_true');ap.add_argument('--daily-limit',type=int,default=500);ap.add_argument('--rel-db',type=Path,default=None);ap.add_argument('--cache',type=Path,default=Path('ba-api-cache.json'));ap.add_argument('--reset-quota',action='store_true');a=ap.parse_args()
  # 接管语义：同指纹已在运行则静默退出；不同指纹则关闭旧实例后接管
  urlfile=_urlfile();old_url=None
+ loopback=build_opener(ProxyHandler({}))  # 127.0.0.1 的握手绝不能走系统代理（代理失效/不支持回环都会误判旧实例）
  try:old_url=urlfile.read_text(encoding='utf8').split('|')[0].strip()
  except OSError:pass
  if old_url:
   try:
-   st=json.loads(urlopen(old_url+'/api/state',timeout=2).read())
+   st=json.loads(loopback.open(Request(old_url+'/api/state'),timeout=2).read())
   except OSError:
    st=None  # 拒连/超时：旧实例已死或挂死，按正常启动走
   except (ValueError,RuntimeError):
@@ -149,10 +150,10 @@ def main():
    if st.get('build')==BUILD:
     print(f'already running: {old_url} / 已有同版本实例在运行',flush=True);return
    try:
-    urlopen(Request(old_url+'/api/shutdown',data=b'{}',headers={'Content-Type':'application/json'}),timeout=3).read()
+    loopback.open(Request(old_url+'/api/shutdown',data=b'{}',headers={'Content-Type':'application/json'}),timeout=3).read()
     deadline=time.time()+4
     while time.time()<deadline:
-     try:urlopen(old_url+'/api/state',timeout=.5)
+     try:loopback.open(old_url+'/api/state',timeout=.5)
      except Exception:break
      time.sleep(.3)
     print(f'took over previous instance at {old_url} / 已接管旧实例',flush=True)
