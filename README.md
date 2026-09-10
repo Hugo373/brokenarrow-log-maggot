@@ -33,15 +33,21 @@ python ba_tool.py scan --json r.json # 导出 JSON 报告
 python ba_tool.py watch              # 实时监控最新日志（JSON 事件）
 ```
 
-| 参数 | 说明 |
-|---|---|
-| `--dir <目录>` | GameLogs 目录（省略时自动探测 Steam 库） |
-| `--port N` | 首选端口；占用时自动递增，最多 20 个 |
-| `--no-stats` | 离线模式，零网络请求 |
-| `--no-browser` | 不自动打开浏览器 |
-| `--daily-limit N` | 24 小时滚动 API 配额（默认 500）；命中缓存不计费 |
-| `--rel-db <文件>` | 关系数据库路径（默认程序目录下 `ba-relationships.sqlite`） |
-| `--cache <文件>` | API 缓存路径（默认 `ba-api-cache.json`） |
+| 参数 | 适用 | 说明 |
+|---|---|---|
+| `--dir <目录>` | 全部 | GameLogs 目录（省略时自动探测 Steam 库） |
+| `--port N` | web_ui.py | 首选端口；占用时自动递增，最多 20 个（默认 8765） |
+| `--no-stats` | web_ui.py / watch | 离线模式，零网络请求 |
+| `--no-browser` | web_ui.py | 不自动打开浏览器 |
+| `--daily-limit N` | web_ui.py / watch | 24 小时滚动 API 配额（默认 500）；命中缓存不计费 |
+| `--rel-db <文件>` | web_ui.py | 关系数据库路径（默认程序目录下 `ba-relationships.sqlite`） |
+| `--cache <文件>` | web_ui.py / watch | API 缓存路径（默认 `ba-api-cache.json`） |
+| `--reset-quota` | web_ui.py / watch | 清零本地 24h 配额计数（你的本地文件，随意重置） |
+| `--json <文件>` | scan | 导出 JSON 报告（scan 无网络请求） |
+| `--interval N` | watch | 日志轮询间隔秒数（默认 1.5） |
+| `--stats-api <URL>` | watch | 公开统计接口地址（默认官方地址） |
+
+> 注意：同一时间只运行一个实例 —— watch 与网页版共享同一个缓存/配额文件，并行运行会让两边内存中的额度互相覆盖（合计可能超限 2 倍）；如需并行，用不同的 `--cache` 路径分开记账。
 
 ## 玩家指数
 
@@ -77,7 +83,7 @@ ResilientClient ──→ 公开 API（缓存 / 熔断 / 配额 / 退避）
 State ──→ ThreadingHTTPServer 127.0.0.1 ──→ web_ui.html（轮询渲染）
 ```
 
-`ba_tool.py` 领域模型+解析器+监控器+CLI；`analysis_engine.py` 数据归一化与组排降权；`scoring.py` 传输无关评分引擎；`relationships.py` SQLite 关系库；`web_ui.py` 弹性客户端+服务；`web_ui.html` 仪表盘。
+`ba_tool.py` 领域模型+解析器+监控器+CLI，含 web_ui.py 与 watch 共用的弹性客户端（缓存/熔断/配额）；`analysis_engine.py` 数据归一化与组排降权；`scoring.py` 传输无关评分引擎；`relationships.py` SQLite 关系库；`web_ui.py` HTTP 服务；`web_ui.html` 仪表盘。
 
 ## 隐私与安全
 
@@ -92,6 +98,6 @@ State ──→ ThreadingHTTPServer 127.0.0.1 ──→ web_ui.html（轮询渲�
 python smoke_test.py    # 端到端冒烟：HTTP 面 / 名单增删 / 日志管线 / 配额 / 关系库
 ```
 
-分支：`main` 稳定线、`dev` 开发线；CI 对每个 push/PR 跑冒烟；推送 `v*` 标签触发自助发版（出便携 zip 并建 Release）。
+分支：仅 `main` 一条线；CI 对每个 push/PR 跑冒烟；推送 `v*` 标签触发自助发版（出便携 zip 并建 Release）。
 
 发版：`python smoke_test.py && git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`

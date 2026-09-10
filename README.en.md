@@ -33,15 +33,21 @@ python ba_tool.py scan --json r.json # export a JSON report
 python ba_tool.py watch              # live-monitor the newest log (JSON events)
 ```
 
-| Flag | Meaning |
-|---|---|
-| `--dir <path>` | GameLogs directory (auto-detected via Steam libraries when omitted) |
-| `--port N` | preferred port; the next 19 ports are tried when taken |
-| `--no-stats` | offline mode, zero network requests |
-| `--no-browser` | do not auto-open the dashboard |
-| `--daily-limit N` | rolling 24h API budget (default 500); cache hits are free |
-| `--rel-db <file>` | relationship database path (default `ba-relationships.sqlite` next to the program) |
-| `--cache <file>` | API cache path (default `ba-api-cache.json`) |
+| Flag | Applies to | Meaning |
+|---|---|---|
+| `--dir <path>` | all | GameLogs directory (auto-detected via Steam libraries when omitted) |
+| `--port N` | web_ui.py | preferred port; the next 19 ports are tried when taken (default 8765) |
+| `--no-stats` | web_ui.py / watch | offline mode, zero network requests |
+| `--no-browser` | web_ui.py | do not auto-open the dashboard |
+| `--daily-limit N` | web_ui.py / watch | rolling 24h API budget (default 500); cache hits are free |
+| `--rel-db <file>` | web_ui.py | relationship database path (default `ba-relationships.sqlite` next to the program) |
+| `--cache <file>` | web_ui.py / watch | API cache path (default `ba-api-cache.json`) |
+| `--reset-quota` | web_ui.py / watch | clear the local 24h quota counters (it is your local file — resetting at will is fine) |
+| `--json <file>` | scan | export a JSON report (scan makes no network requests) |
+| `--interval N` | watch | log poll interval in seconds (default 1.5) |
+| `--stats-api <URL>` | watch | public stats API base URL (default: the official endpoint) |
+
+> Note: run one instance at a time — `watch` and the web dashboard share the same cache/quota files, and running both in parallel lets their in-memory budgets overwrite each other (together they may spend up to 2x the limit); if you need both, give each a separate `--cache` path so their books stay separate.
 
 ## Player index
 
@@ -77,7 +83,7 @@ ResilientClient ──→ public API (cache / breaker / quota / backoff)
 State ──→ ThreadingHTTPServer 127.0.0.1 ──→ web_ui.html (polling renderer)
 ```
 
-`ba_tool.py` domain model, parser, watcher and CLI · `analysis_engine.py` payload normalization and party down-weighting · `scoring.py` transport-independent scoring engine · `relationships.py` SQLite relationship store · `web_ui.py` resilient client and HTTP service · `web_ui.html` dashboard.
+`ba_tool.py` domain model, parser, watcher and CLI, including the resilient client (cache / breaker / quota) shared by `web_ui.py` and `watch` · `analysis_engine.py` payload normalization and party down-weighting · `scoring.py` transport-independent scoring engine · `relationships.py` SQLite relationship store · `web_ui.py` HTTP service · `web_ui.html` dashboard.
 
 ## Privacy & safety
 
@@ -92,6 +98,6 @@ The parser silently ignores unrecognized log lines and replaces malformed bytes,
 python smoke_test.py    # end-to-end smoke: HTTP surface / list edits / log pipeline / quota / relationship store
 ```
 
-Branches: `main` is stable, `dev` for development. CI runs the smoke test on every push/PR; pushing a `v*` tag builds the portable zip and cuts a GitHub Release.
+Branches: `main` is the only line. CI runs the smoke test on every push/PR; pushing a `v*` tag builds the portable zip and cuts a GitHub Release.
 
 Release: `python smoke_test.py && git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`
