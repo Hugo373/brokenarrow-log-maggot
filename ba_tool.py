@@ -211,7 +211,7 @@ class Quota:
 class ResilientClient(PublicStatsClient):
  def __init__(self,base,cache,quota=None):super().__init__(base,8);self.cache=cache;self.quota=quota;self.lock=threading.Lock();self.last=0;self.open_until=0;self.failures=0;self.last_error=None
  def status(self):
-  s={'circuit_open':time.time()<self.open_until,'circuit_until':self.open_until,'consecutive_failures':self.failures,'last_error':self.last_error}
+  s={'circuit_open':time.time()<self.open_until,'circuit_until':self.open_until,'consecutive_failures':self.failures,'last_error':self.last_error,'channel':'direct' if getattr(self,'_direct_ok',False) else 'system'}
   if self.quota:s['quota']=self.quota.summary()
   return s
  def _cached(self,k,path,params):

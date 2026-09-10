@@ -439,6 +439,14 @@ def main() -> int:
         ok3 = c3._get("/api/analysis/player", {"stbid": "1"}) == {"ok": True}
         check("proxy channel can win back", ok3 and c3._direct_ok is False,
               f"ok={ok3} flag={c3._direct_ok}")
+        from ba_tool import ResilientClient as _RC
+        sr = _RC("http://x", Cache(workdir / "ch-cache.json"))
+        sr._direct_ok = True
+        direct_label = sr.status()["channel"]
+        sr._direct_ok = False
+        system_label = sr.status()["channel"]
+        check("status reports direct channel", direct_label == "direct" and system_label == "system",
+              f"direct={direct_label} system={system_label}")
     finally:
         _ureq.urlopen, ba_tool.PublicStatsClient._direct_opener = orig_urlopen, orig_direct
     # 404 是确定性的“榜上无此玩家”，不算熔断失败：计数器不涨、熔断不开
