@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 from urllib.error import HTTPError, URLError
-from analysis_engine import historical_performance
+from analysis_engine import historical_performance, _number
 
 TIMESTAMP_RE = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:\.\d+)?)\]$")
 LOG_RE = re.compile(r"\.(?:log|txt)$", re.I)
@@ -359,8 +359,10 @@ class MatchAnalysis:
             profile = self.client.player_report(player.id)
             stats = historical_performance(self.client, player.id, profile, progress)
             current = next((p for p in ((profile.get("trend") or {}).get("points") or []) if str(p.get("matchId")) == str(match.fid)), None)
-            if current and current.get("ratingBefore") is not None and current.get("ratingAfter") is not None:
-                stats["elo_delta"] = round(float(current["ratingAfter"]) - float(current["ratingBefore"]), 2)
+            if current:
+                after, before = _number(current.get("ratingAfter")), _number(current.get("ratingBefore"))
+                if after is not None and before is not None:
+                    stats["elo_delta"] = round(after - before, 2)
             with self.stats_lock:
                 match.player_stats[player.id] = stats
         except (OSError, ValueError, TypeError, RuntimeError, json.JSONDecodeError) as exc:
