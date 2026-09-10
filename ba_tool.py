@@ -150,12 +150,17 @@ class Quota:
  def __init__(self,path,limit=500):
   self.path=Path(path);self.limit=limit;self.requested_limit=limit;self.lock=threading.Lock();self.calls=[]
   try:
-   data=json.loads(self.path.read_text(encoding='utf8'))
+   now=time.time();data=json.loads(self.path.read_text(encoding='utf8'));lim,cs=limit,[]
    if isinstance(data,dict):  # v2 wrapped format: the persisted limit wins over the constructor argument
-    if isinstance(data.get('limit'),(int,float)):self.limit=int(data['limit'])
-    data=data.get('calls') or []
-   self.calls=[float(t) for t in data if float(t)>time.time()-86400]
-  except (OSError,ValueError,TypeError):pass
+    v=data.get('limit')
+    if isinstance(v,(int,float)) and math.isfinite(v) and 0<v<=100000:lim=int(v)
+    data=data.get('calls')
+   for t in data if isinstance(data,list) else []:  # per-entry: uncoercible/non-finite/skewed entries dropped, never fatal
+    try:t=float(t)
+    except (TypeError,ValueError):continue
+    if math.isfinite(t) and now-86400<t<=now+60:cs.append(t)
+   self.limit,self.calls=lim,cs  # assigned together only after a fully validated pass
+  except (OSError,ValueError,TypeError,OverflowError):pass
  def _save(self):
   try:t=self.path.with_name(self.path.name+'.tmp');t.write_text(json.dumps({'version':2,'limit':self.limit,'calls':self.calls[-86400:]},ensure_ascii=False),encoding='utf8');os.replace(t,self.path)
   except OSError:pass
