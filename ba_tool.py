@@ -68,13 +68,41 @@ class PublicStatsClient:
     def __init__(self, base_url: str, timeout: float = 8.0):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self._direct_ok = False  # last direct connection succeeded → skip the proxy first
+
+    def _direct_opener(self):
+        """Opener that bypasses system proxy settings; seam for tests."""
+        return urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
     def _get(self, path: str, params: dict) -> dict:
         query = urllib.parse.urlencode(params)
         request = urllib.request.Request(f"{self.base_url}{path}?{query}", headers={"User-Agent": "BrokenArrowLogTool/0.1"})
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
-            body = response.read()
-            content_type = (response.headers.get("Content-Type") or "").lower()
+        # urllib 的进程级全局 opener 在首次使用时快照系统代理；代理中途失效会把整个进程困在死通道上
+        # （新进程没事，老进程一直 URLError）。传输层失败就换直连通道重试一次，并记住最后成功的通道。
+        # 通道选择是无锁的最后写入胜出（GIL 下安全）；每次回退都新建 opener，不复用任何全局状态。
+        try:
+            if self._direct_ok:
+                with self._direct_opener().open(request, timeout=self.timeout) as response:
+                    body = response.read()
+                    content_type = (response.headers.get("Content-Type") or "").lower()
+            else:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    body = response.read()
+                    content_type = (response.headers.get("Content-Type") or "").lower()
+        except (urllib.error.URLError, TimeoutError):
+            self._direct_ok = not self._direct_ok
+            try:
+                if self._direct_ok:
+                    with self._direct_opener().open(request, timeout=self.timeout) as response:
+                        body = response.read()
+                        content_type = (response.headers.get("Content-Type") or "").lower()
+                else:
+                    with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                        body = response.read()
+                        content_type = (response.headers.get("Content-Type") or "").lower()
+            except (urllib.error.URLError, TimeoutError):
+                self._direct_ok = not self._direct_ok  # both channels dead: undo the flip
+                raise
         # A JSON endpoint answering HTML is the CDN's human-verification challenge; retrying cannot fix it.
         if "text/html" in content_type or b"EdgeOne" in body[:512]:
             raise CaptchaRequired("human verification page received / 收到人机验证页面")

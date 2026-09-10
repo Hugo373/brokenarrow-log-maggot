@@ -351,6 +351,58 @@ def main() -> int:
         check("quota exhausted raises clear error", False, "no error raised")
     except RuntimeError as exc:
         check("quota exhausted raises clear error", "配额" in str(exc))
+
+    # 代理失效时自动降级：默认 urlopen 挂掉后换直连通道重试一次，成功则记住通道
+    import urllib.request as _ureq
+    import urllib.error as _uerr
+    from ba_tool import PublicStatsClient
+    class _FakeResponse:
+        def read(self): return b'{"ok":true}'
+        headers = {"Content-Type": "application/json"}
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    class _StubOpener:
+        def __init__(self, outcomes):
+            self.outcomes = list(outcomes); self.calls = 0
+        def open(self, request, timeout=None):
+            self.calls += 1
+            outcome = self.outcomes.pop(0) if self.outcomes else _FakeResponse()
+            if isinstance(outcome, Exception): raise outcome
+            return outcome
+    orig_urlopen, orig_direct = _ureq.urlopen, ba_tool.PublicStatsClient._direct_opener
+    try:
+        proxy_stub = _StubOpener([_uerr.URLError("boom")])
+        direct_stub = _StubOpener([_FakeResponse(), _FakeResponse(), _FakeResponse()])
+        _ureq.urlopen = lambda request, timeout=None: proxy_stub.open(request, timeout=timeout)
+        ba_tool.PublicStatsClient._direct_opener = lambda self: direct_stub
+        c = PublicStatsClient("http://x")
+        ok1 = c._get("/api/analysis/player", {"stbid": "1"}) == {"ok": True}
+        check("falls back to direct when proxy path fails", ok1 and c._direct_ok is True and proxy_stub.calls == 1 and direct_stub.calls == 1,
+              f"ok={ok1} direct_ok={c._direct_ok} proxy={proxy_stub.calls} direct={direct_stub.calls}")
+        ok2 = c._get("/api/analysis/player", {"stbid": "2"}) == {"ok": True}
+        check("direct channel sticks after success", ok2 and c._direct_ok is True and proxy_stub.calls == 1 and direct_stub.calls == 2,
+              f"proxy={proxy_stub.calls} direct={direct_stub.calls}")
+        both_proxy = _StubOpener([_uerr.URLError("p1"), _uerr.URLError("p2")])
+        both_direct = _StubOpener([_uerr.URLError("d1")])
+        _ureq.urlopen = lambda request, timeout=None: both_proxy.open(request, timeout=timeout)
+        ba_tool.PublicStatsClient._direct_opener = lambda self: both_direct
+        c2 = PublicStatsClient("http://x"); before = c2._direct_ok
+        raised = False
+        try:
+            c2._get("/api/analysis/player", {"stbid": "1"})
+        except _uerr.URLError:
+            raised = True
+        check("both channels fail raises URLError", raised and c2._direct_ok == before, f"raised={raised} flag={c2._direct_ok}")
+        win_proxy = _StubOpener([_FakeResponse()])
+        lose_direct = _StubOpener([_uerr.URLError("dead")])
+        _ureq.urlopen = lambda request, timeout=None: win_proxy.open(request, timeout=timeout)
+        ba_tool.PublicStatsClient._direct_opener = lambda self: lose_direct
+        c3 = PublicStatsClient("http://x"); c3._direct_ok = True
+        ok3 = c3._get("/api/analysis/player", {"stbid": "1"}) == {"ok": True}
+        check("proxy channel can win back", ok3 and c3._direct_ok is False,
+              f"ok={ok3} flag={c3._direct_ok}")
+    finally:
+        _ureq.urlopen, ba_tool.PublicStatsClient._direct_opener = orig_urlopen, orig_direct
     # 404 是确定性的“榜上无此玩家”，不算熔断失败：计数器不涨、熔断不开
     import urllib.error
     import ba_tool
